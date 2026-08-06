@@ -1,0 +1,23 @@
+# Dependency directories
+node_modules/
+
+# TypeScript build output
+out/
+dist/
+
+# VS Code & Testing
+.vscode-test/
+*.vsix
+
+# Environment & Logs
+*.log
+.env
+.env.local
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# Temp Files
+*.tmp
+*.temp

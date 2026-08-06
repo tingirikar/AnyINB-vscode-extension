@@ -1,0 +1,88 @@
+{
+  "name": "anyinb",
+  "displayName": "AnyINB — Universal Interactive Notebook",
+  "description": "Practice ANY language in interactive notebook cells. Databases, programming languages, shell, APIs — all in one .anyinb file.",
+  "version": "0.2.0",
+  "publisher": "xenon-dev",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Notebooks",
+    "Programming Languages",
+    "Education",
+    "Data Science"
+  ],
+  "keywords": [
+    "notebook",
+    "interactive",
+    "python",
+    "javascript",
+    "typescript",
+    "go",
+    "rust",
+    "java",
+    "c",
+    "cpp",
+    "sql",
+    "mysql",
+    "mongodb",
+    "redis",
+    "postgresql",
+    "sqlite",
+    "bash",
+    "powershell",
+    "http",
+    "rest",
+    "practice",
+    "anyinb"
+  ],
+  "activationEvents": [
+    "onNotebook:anyinb"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "notebooks": [
+      {
+        "type": "anyinb",
+        "displayName": "AnyINB Notebook",
+        "selector": [
+          {
+            "filenamePattern": "*.anyinb"
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "anyinb.configureConnection",
+        "title": "AnyINB: Configure Database Connection",
+        "icon": "$(database)"
+      },
+      {
+        "command": "anyinb.newNotebook",
+        "title": "AnyINB: New Notebook"
+      },
+      {
+        "command": "anyinb.disconnectAll",
+        "title": "AnyINB: Disconnect All Databases"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "dependencies": {
+    "mongodb": "^6.8.0",
+    "mysql2": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^2.29.0",
+    "typescript": "^5.5.0"
+  }
+}

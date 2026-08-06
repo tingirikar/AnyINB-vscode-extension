@@ -1,0 +1,79 @@
+{
+  "cells": [
+    {
+      "kind": "markdown",
+      "language": "markdown",
+      "value": "# 🚀 Query Practice Notebook — Getting Started\n\nWelcome to your interactive database query playground!\n\n## How to use\n1. **Connect** — Open Command Palette (`Ctrl+Shift+P`) → `Query Notebook: Configure Database Connection`\n2. **Write** — Add SQL or JavaScript cells below\n3. **Run** — Click the ▶️ play button on any cell to execute it\n4. **See results** — Output appears below each cell as a formatted table\n\n## Cell Languages\n- **SQL** cells → Execute against MySQL\n- **JavaScript** cells → Execute against MongoDB\n\n---"
+    },
+    {
+      "kind": "markdown",
+      "language": "markdown",
+      "value": "## 🐬 MySQL Examples\nChange the cell language to `sql` to run these queries."
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Show all databases\nSHOW DATABASES;"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Show tables in the current database\nSHOW TABLES;"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Basic SELECT query\nSELECT 1 + 1 AS result, NOW() AS current_time, VERSION() AS mysql_version;"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Create a practice table\nCREATE TABLE IF NOT EXISTS practice_users (\n    id INT AUTO_INCREMENT PRIMARY KEY,\n    name VARCHAR(100) NOT NULL,\n    email VARCHAR(255),\n    age INT,\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Insert some data\nINSERT INTO practice_users (name, email, age) VALUES\n    ('Alice', 'alice@example.com', 28),\n    ('Bob', 'bob@example.com', 34),\n    ('Charlie', 'charlie@example.com', 22),\n    ('Diana', 'diana@example.com', 31);"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Query the data\nSELECT * FROM practice_users ORDER BY name;"
+    },
+    {
+      "kind": "code",
+      "language": "sql",
+      "value": "-- Try aggregation\nSELECT \n    COUNT(*) AS total_users,\n    AVG(age) AS avg_age,\n    MIN(age) AS youngest,\n    MAX(age) AS oldest\nFROM practice_users;"
+    },
+    {
+      "kind": "markdown",
+      "language": "markdown",
+      "value": "---\n## 🍃 MongoDB Examples\nChange the cell language to `javascript` to run these queries."
+    },
+    {
+      "kind": "code",
+      "language": "javascript",
+      "value": "// List all collections\ndb.listCollections().toArray()"
+    },
+    {
+      "kind": "code",
+      "language": "javascript",
+      "value": "// Insert documents\ndb.collection('practice_users').insertMany([\n    { name: 'Alice', email: 'alice@example.com', age: 28, tags: ['admin', 'user'] },\n    { name: 'Bob', email: 'bob@example.com', age: 34, tags: ['user'] },\n    { name: 'Charlie', email: 'charlie@example.com', age: 22, tags: ['user', 'moderator'] },\n    { name: 'Diana', email: 'diana@example.com', age: 31, tags: ['admin'] }\n])"
+    },
+    {
+      "kind": "code",
+      "language": "javascript",
+      "value": "// Find all documents\ndb.collection('practice_users').find({}).toArray()"
+    },
+    {
+      "kind": "code",
+      "language": "javascript",
+      "value": "// Find with filter\ndb.collection('practice_users').find({ age: { $gte: 30 } }).toArray()"
+    },
+    {
+      "kind": "code",
+      "language": "javascript",
+      "value": "// Aggregation pipeline\ndb.collection('practice_users').aggregate([\n    { $group: { _id: null, avgAge: { $avg: '$age' }, count: { $sum: 1 } } }\n]).toArray()"
+    }
+  ]
+}
