@@ -1,132 +1,84 @@
-# 📓 Query Practice Notebook
+# AnyINB — The Ultimate Universal Notebook
 
-> **Interactive notebook for practicing MongoDB and MySQL queries — like Jupyter, but for databases.**
+![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
+![VS Code](https://img.shields.io/badge/VS%20Code-%5E1.80.0-blueviolet.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Platform](https://img.shields.io/badge/platform-win%20|%20mac%20|%20linux-lightgrey.svg)
 
-Write your database queries in code cells, hit ▶️ Run, and see results rendered as beautiful tables — all without leaving VS Code.
+AnyINB is a universal interactive notebook extension for VS Code that lets you write and execute code, database queries, API requests, and shell scripts all within a single `.anyinb` file.
 
-## ✨ Features
+**It has been updated with State-of-the-Art features.**
 
-- 🔲 **Notebook cells** — Just like Jupyter! Write queries in blocks, run them individually
-- 🐬 **MySQL support** — Full SQL query execution with table output
-- 🍃 **MongoDB support** — Run JavaScript/MongoDB queries with JSON output
-- 📝 **Markdown cells** — Document your queries with rich markdown
-- 💾 **Persistent** — Save and reload your query notebooks (`.iqnb` files)
-- 🎨 **Beautiful output** — Results rendered as styled HTML tables with row counts and timing
-- 🔒 **Secure** — Passwords stored in VS Code's SecretStorage
+## 🌟 Ultimate Features
 
-## 🚀 Quick Start
+- **🔄 Persistent REPL Sessions**: Variables and functions defined in one Python, Node.js, or Bash cell carry over to the next! True Jupyter-like experience without the heavy kernel installations.
+- **📊 Built-in Data Visualization**: Results from databases (SQL, PostgreSQL, SQLite, etc.) are rendered in tables, and with one click, you can visualize them as Bar Charts right inside the notebook!
+- **⬇️ Export Data**: One click to export any tabular output to a local `.csv` or `.json` file.
+- **🛑 Execution Controls**: Full support for native VS Code notebook controls. Click the Stop button to interrupt hanging scripts or cancel long-running database queries.
+- **🐳 Docker Execution**: Enable `anyinb.useDocker` in your settings to execute Python, Node, or Bash scripts securely inside isolated Docker containers instead of your host machine!
+- **🌐 GraphQL & WebSockets**: Dedicated executors for GraphQL APIs and WebSocket connections.
+- **🔐 Environment Variables**: Automatically loads `.env` files from your workspace. Use `{{MY_API_KEY}}` seamlessly in HTTP, GraphQL, and WebSocket requests.
+- **🗣️ Interactive Shells**: Supports code that requires user input (e.g., `input()` in Python or `read` in Bash) using native VS Code input boxes!
 
-### 1. Install the Extension
-Press `F5` to launch the Extension Development Host (for development).
+## Architecture
 
-### 2. Create a Notebook
-- Command Palette (`Ctrl+Shift+P`) → **Query Notebook: New Query Notebook**
-- Or create a file with the `.iqnb` extension
-
-### 3. Connect to Your Database
-- Command Palette → **Query Notebook: Configure Database Connection**
-- Choose MySQL or MongoDB and enter your connection details
-
-### 4. Write & Run Queries!
-- Set cell language to `SQL` for MySQL queries
-- Set cell language to `JavaScript` for MongoDB queries
-- Click ▶️ to run a cell
-
-## 📂 File Format
-
-Query notebooks use the `.iqnb` extension. The file is JSON-based:
-
-```json
-{
-  "cells": [
-    {
-      "kind": "markdown",
-      "language": "markdown",
-      "value": "# My Notes"
-    },
-    {
-      "kind": "code",
-      "language": "sql",
-      "value": "SELECT * FROM users;"
-    },
-    {
-      "kind": "code",
-      "language": "javascript",
-      "value": "db.collection('users').find({}).toArray()"
-    }
-  ]
-}
+```mermaid
+graph TD
+    User([User / Notebook]) -->|Executes Cell| Controller[AnyInbController]
+    Controller -->|Routes by Language| Routing{Language Router}
+    
+    Routing -->|Python, JS, Bash| REPL[ReplExecutor<br/>Persistent State]
+    Routing -->|GraphQL, WS, HTTP| Web[API / Web Executors]
+    Routing -->|Go, Rust, Java, C++| Process[Process & Shell Executors<br/>Temp Files]
+    Routing -->|SQL, Postgres, Mongo| DB[ConnectionManager<br/>Databases]
+    
+    REPL -.->|Optionally runs in| Docker[(Docker Container)]
+    
+    REPL --> HTML[HtmlRenderer]
+    Web --> HTML
+    Process --> HTML
+    DB --> HTML
+    
+    HTML -->|Interactive Tabs, Charts, CSV| Output([Notebook Cell Output])
 ```
 
-## 🐬 MySQL Usage
+## Supported Languages and Runtimes
 
-Write standard SQL in cells with language set to `sql`:
+### 🧑‍💻 Programming Languages
+- Python (`python`) **[Supports Persistent REPL]**
+- JavaScript (`javascript` / `node`) **[Supports Persistent REPL]**
+- TypeScript (`ts-node`)
+- Go (`go run`)
+- Rust (`cargo run` / `rustc`)
+- Java (`java`)
+- C & C++ (`gcc` / `g++`)
+- ...and many more!
 
-```sql
--- DDL
-CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100));
+### 🗄️ Databases
+- **MySQL / MariaDB** (`sql`)
+- **PostgreSQL** (`postgres`)
+- **SQLite** (`sqlite`)
+- **MongoDB** (`javascript` / `mongodb` syntax)
+- **Redis** (`redis`)
 
--- DML
-INSERT INTO users VALUES (1, 'Alice');
+### 🐚 Shells & Scripts
+- Bash / Shell Script (`bash` / `sh`) **[Supports Persistent REPL]**
+- PowerShell (`powershell`)
+- Batch (`cmd.exe`)
 
--- Queries
-SELECT * FROM users WHERE name LIKE 'A%';
+### 🌐 Web / API
+- HTTP / REST (`http`)
+- GraphQL (`graphql`)
+- WebSockets (`websocket`)
 
--- Aggregation
-SELECT department, COUNT(*) FROM employees GROUP BY department;
-```
+## Getting Started
 
-## 🍃 MongoDB Usage
+1. Create a new file with the `.anyinb` extension.
+2. Add a new code cell.
+3. Select the language you want to practice in the bottom right corner of the cell.
+4. Write your code and press `Ctrl+Enter` or click the Play button to execute it.
+5. If using a database, ensure you run the `AnyINB: Configure Database Connection` command first.
 
-Write JavaScript in cells with language set to `javascript`. The `db` object is pre-configured to point to your connected database:
+## Extension Settings
 
-```javascript
-// Find documents
-db.collection('users').find({ age: { $gte: 21 } }).toArray()
-
-// Insert
-db.collection('users').insertOne({ name: 'Alice', age: 28 })
-
-// Aggregate
-db.collection('orders').aggregate([
-    { $match: { status: 'completed' } },
-    { $group: { _id: '$category', total: { $sum: '$amount' } } }
-]).toArray()
-
-// Use MongoDB BSON types
-const { ObjectId } = require('mongodb');
-db.collection('users').findOne({ _id: new ObjectId('...') })
-```
-
-## ⚡ Commands
-
-| Command | Description |
-|---------|-------------|
-| `Query Notebook: New Query Notebook` | Create a new `.iqnb` notebook |
-| `Query Notebook: Configure Database Connection` | Set up MySQL or MongoDB connection |
-| `Query Notebook: Disconnect All Databases` | Close all database connections |
-
-## 🛠️ Development
-
-```bash
-# Install dependencies
-npm install
-
-# Compile
-npm run compile
-
-# Watch mode
-npm run watch
-
-# Launch in VS Code (press F5)
-```
-
-## 📋 Prerequisites
-
-- **MySQL**: Have a MySQL server running (locally or remote)
-- **MongoDB**: Have a MongoDB server running (locally or remote)
-- **VS Code**: Version 1.80.0 or higher
-
-## 📄 License
-
-MIT
+- `anyinb.useDocker`: Set to `true` to run compatible language cells (Python, Node, Bash) inside isolated Docker containers instead of the host machine.

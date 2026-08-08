@@ -1,8 +1,13 @@
 import * as vscode from 'vscode';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { ConnectionManager } from './connectionManager';
 import { ProcessExecutor, LANGUAGE_CONFIGS } from './executors/processExecutor';
 import { ShellExecutor } from './executors/shellExecutor';
 import { HttpExecutor } from './executors/httpExecutor';
+import { ReplExecutor } from './executors/replExecutor';
+import { GraphqlExecutor } from './executors/graphqlExecutor';
+import { WebsocketExecutor } from './executors/websocketExecutor';
 import { RuntimeDetector } from './runtimeDetector';
 import {
     renderTable, renderError, renderJson, renderSuccess,
@@ -11,7 +16,7 @@ import {
 } from './renderers/htmlRenderer';
 
 // All languages the controller can handle
-const DATABASE_LANGUAGES = ['sql', 'javascript'];
+const DATABASE_LANGUAGES = ['sql', 'javascript', 'postgres', 'sqlite', 'redis'];
 const PROCESS_LANGUAGES = Object.keys(LANGUAGE_CONFIGS);
 const SHELL_LANGUAGES = ['shellscript', 'powershell', 'bat'];
 const HTTP_LANGUAGES = ['http'];
@@ -42,6 +47,9 @@ export class AnyInbController {
     private shellExecutor: ShellExecutor;
     private httpExecutor: HttpExecutor;
     private runtimeDetector: RuntimeDetector;
+    private replExecutor: ReplExecutor;
+    private graphqlExecutor: GraphqlExecutor;
+    private websocketExecutor: WebsocketExecutor;
 
     constructor(private connectionManager: ConnectionManager) {
         this._controller = vscode.notebooks.createNotebookController(
@@ -59,6 +67,9 @@ export class AnyInbController {
         this.shellExecutor = new ShellExecutor();
         this.httpExecutor = new HttpExecutor();
         this.runtimeDetector = new RuntimeDetector();
+        this.replExecutor = new ReplExecutor();
+        this.graphqlExecutor = new GraphqlExecutor();
+        this.websocketExecutor = new WebsocketExecutor();
     }
 
     private _executeAll(
@@ -75,6 +86,11 @@ export class AnyInbController {
         const execution = this._controller.createNotebookCellExecution(cell);
         execution.executionOrder = ++this._executionOrder;
         execution.start(Date.now());
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (workspaceFolder) {
+            dotenv.config({ path: path.join(workspaceFolder.uri.fsPath, '.env'), override: true });
+        }
 
         const code = cell.document.getText().trim();
         const language = cell.document.languageId;
@@ -96,8 +112,20 @@ export class AnyInbController {
             // Route to the right executor
             if (language === 'sql') {
                 await this._executeMySql(execution, code);
+            } else if (language === 'postgres') {
+                await this._executePostgres(execution, code);
+            } else if (language === 'sqlite') {
+                await this._executeSqlite(execution, code);
+            } else if (language === 'redis') {
+                await this._executeRedis(execution, code);
             } else if (language === 'javascript' && this._looksLikeMongo(code)) {
                 await this._executeMongo(execution, code);
+            } else if (language === 'graphql') {
+                await this._executeGraphql(execution, code);
+            } else if (language === 'websocket') {
+                await this._executeWebsocket(execution, code);
+            } else if (language === 'python' || language === 'javascript' || language === 'bash' || language === 'shellscript') {
+                await this._executeRepl(execution, code, language);
             } else if (PROCESS_LANGUAGES.includes(language)) {
                 await this._executeProcess(execution, code, language);
             } else if (SHELL_LANGUAGES.includes(language)) {
@@ -233,6 +261,128 @@ export class AnyInbController {
         this._outputHtml(execution, html, true);
     }
 
+    // ─── PostgreSQL ────────────────────────────────────────────────
+
+    private async _executePostgres(
+        execution: vscode.NotebookCellExecution,
+        query: string
+    ): Promise<void> {
+        const executor = this.connectionManager.getPostgresExecutor();
+
+        if (!executor || !executor.isConnected()) {
+            execution.replaceOutput([
+                new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text(
+                        renderConnectionRequired('PostgreSQL'),
+                        'text/html'
+                    )
+                ])
+            ]);
+            execution.end(false, Date.now());
+            return;
+        }
+
+        const startTime = Date.now();
+        const result = await executor.execute(query);
+        const elapsed = Date.now() - startTime;
+
+        if (result.error) {
+            this._outputHtml(execution, renderError(result.error, 'PostgreSQL'), false);
+            return;
+        }
+
+        let html: string;
+        if (result.rows && Array.isArray(result.rows) && result.rows.length > 0) {
+            html = renderTable(result.rows, result.fields || [], elapsed, 'PostgreSQL');
+        } else {
+            html = renderSuccess('Query executed successfully.', elapsed, 'PostgreSQL');
+        }
+
+        this._outputHtml(execution, html, true);
+    }
+
+    // ─── SQLite ────────────────────────────────────────────────────
+
+    private async _executeSqlite(
+        execution: vscode.NotebookCellExecution,
+        query: string
+    ): Promise<void> {
+        const executor = this.connectionManager.getSqliteExecutor();
+
+        if (!executor || !executor.isConnected()) {
+            execution.replaceOutput([
+                new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text(
+                        renderConnectionRequired('SQLite'),
+                        'text/html'
+                    )
+                ])
+            ]);
+            execution.end(false, Date.now());
+            return;
+        }
+
+        const startTime = Date.now();
+        const result = await executor.execute(query);
+        const elapsed = Date.now() - startTime;
+
+        if (result.error) {
+            this._outputHtml(execution, renderError(result.error, 'SQLite'), false);
+            return;
+        }
+
+        let html: string;
+        if (result.rows && Array.isArray(result.rows) && result.rows.length > 0) {
+            html = renderTable(result.rows, result.fields || [], elapsed, 'SQLite');
+        } else {
+            html = renderSuccess('Query executed successfully.', elapsed, 'SQLite');
+        }
+
+        this._outputHtml(execution, html, true);
+    }
+
+    // ─── Redis ─────────────────────────────────────────────────────
+
+    private async _executeRedis(
+        execution: vscode.NotebookCellExecution,
+        query: string
+    ): Promise<void> {
+        const executor = this.connectionManager.getRedisExecutor();
+
+        if (!executor || !executor.isConnected()) {
+            execution.replaceOutput([
+                new vscode.NotebookCellOutput([
+                    vscode.NotebookCellOutputItem.text(
+                        renderConnectionRequired('Redis'),
+                        'text/html'
+                    )
+                ])
+            ]);
+            execution.end(false, Date.now());
+            return;
+        }
+
+        const startTime = Date.now();
+        const result = await executor.execute(query);
+        const elapsed = Date.now() - startTime;
+
+        if (result.error) {
+            this._outputHtml(execution, renderError(result.error, 'Redis'), false);
+            return;
+        }
+
+        let html: string;
+        if (Array.isArray(result.data)) {
+            html = renderJson(result.data, elapsed, 'Redis');
+        } else if (result.data !== null && result.data !== undefined) {
+            html = renderJson(result.data, elapsed, 'Redis');
+        } else {
+            html = renderSuccess('Command executed successfully.', elapsed, 'Redis');
+        }
+
+        this._outputHtml(execution, html, true);
+    }
+
     // ─── Programming Languages ─────────────────────────────────────
 
     private async _executeProcess(
@@ -304,8 +454,16 @@ export class AnyInbController {
         };
         const { name, icon } = names[language] || { name: 'Shell', icon: '🐚' };
 
+        const inputProvider = async (prompt?: string): Promise<string | undefined> => {
+            return vscode.window.showInputBox({
+                prompt: prompt || 'Enter input:',
+                placeHolder: 'Type your input here...',
+                ignoreFocusOut: true,
+            });
+        };
+
         const startTime = Date.now();
-        const result = await this.shellExecutor.execute(code, shellType);
+        const result = await this.shellExecutor.execute(code, shellType, 30000, inputProvider);
         const elapsed = Date.now() - startTime;
 
         if (result.error) {
@@ -335,6 +493,63 @@ export class AnyInbController {
 
         const html = renderHttpResponse(result);
         this._outputHtml(execution, html, result.status >= 200 && result.status < 400);
+    }
+
+    // ─── Repl ───────────────────────────────────────────────────────
+
+    private async _executeRepl(
+        execution: vscode.NotebookCellExecution,
+        code: string,
+        language: string
+    ): Promise<void> {
+        const langIcon = language === 'python' ? '🐍' : (language === 'javascript' ? '🟨' : '🐚');
+        const startTime = Date.now();
+        const result = await this.replExecutor.execute(code, language, 30000, execution.token);
+        const elapsed = Date.now() - startTime;
+
+        if (result.error) {
+            this._outputHtml(execution, renderError(result.error, language), false);
+            return;
+        }
+
+        const html = renderConsoleOutput(result.stdout, result.stderr, 0, elapsed, language, langIcon);
+        this._outputHtml(execution, html, true);
+    }
+
+    // ─── GraphQL ───────────────────────────────────────────────────
+
+    private async _executeGraphql(
+        execution: vscode.NotebookCellExecution,
+        code: string
+    ): Promise<void> {
+        const result = await this.graphqlExecutor.execute(code);
+
+        if (result.error) {
+            this._outputHtml(execution, renderError(result.error, 'GraphQL'), false);
+            return;
+        }
+
+        const html = renderHttpResponse(result);
+        this._outputHtml(execution, html, result.status >= 200 && result.status < 400);
+    }
+
+    // ─── WebSocket ─────────────────────────────────────────────────
+
+    private async _executeWebsocket(
+        execution: vscode.NotebookCellExecution,
+        code: string
+    ): Promise<void> {
+        const result = await this.websocketExecutor.execute(code, 15000, execution.token);
+
+        if (result.error && result.messages.length === 0) {
+            this._outputHtml(execution, renderError(result.error, 'WebSocket'), false);
+            return;
+        }
+
+        const msgs = result.messages.join('\n');
+        const err = result.error ? `\n[Error: ${result.error}]` : '';
+        const html = renderConsoleOutput(msgs + err, '', 0, result.elapsed, 'WebSocket', '🔌');
+        this._outputHtml(execution, html, !result.error);
     }
 
     // ─── Helpers ───────────────────────────────────────────────────

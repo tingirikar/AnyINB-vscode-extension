@@ -286,6 +286,26 @@ const STYLES = `
         font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
         font-size: 11.5px;
     }
+
+    /* ── Tabs ── */
+    .qnb-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .qnb-tab-btn {
+        background: #252526;
+        border: 1px solid #333;
+        color: #ccc;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .qnb-tab-btn:hover { background: #2d2d2d; }
+    .qnb-tab-btn.active { background: #007acc; color: white; border-color: #007acc; }
+    .qnb-tab-content { display: none; }
+    .qnb-tab-content.active { display: block; }
 </style>
 `;
 
@@ -313,15 +333,35 @@ export function renderTable(
     }).join('\n');
 
     const { badgeClass, badgeIcon } = getBadge(dbType);
+    const id = "out_" + Math.random().toString(36).substr(2, 9);
+    
+    // Pass raw data to script safely
+    const rawData = JSON.stringify(rows).replace(/</g, '\\u003c');
 
     return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-table-wrapper">
-        <table class="qnb-table">
-            <thead><tr>${headerCells}</tr></thead>
-            <tbody>${bodyRows}</tbody>
-        </table>
+<div class="qnb-output" id="${id}">
+    <div class="qnb-tabs">
+        <button class="qnb-tab-btn active" onclick="document.getElementById('${id}').querySelector('.tab-table').style.display='block'; document.getElementById('${id}').querySelector('.tab-chart').style.display='none';">📄 Table</button>
+        <button class="qnb-tab-btn" onclick="document.getElementById('${id}').querySelector('.tab-table').style.display='none'; document.getElementById('${id}').querySelector('.tab-chart').style.display='block'; window.renderChart_${id}();">📊 Chart</button>
+        <button class="qnb-tab-btn" onclick="window.exportCSV_${id}()">⬇️ CSV</button>
+        <button class="qnb-tab-btn" onclick="window.exportJSON_${id}()">⬇️ JSON</button>
     </div>
+
+    <div class="qnb-tab-content active tab-table">
+        <div class="qnb-table-wrapper">
+            <table class="qnb-table">
+                <thead><tr>${headerCells}</tr></thead>
+                <tbody>${bodyRows}</tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="qnb-tab-content tab-chart">
+        <div style="background:#1e1e1e; padding:16px; border-radius:6px; border:1px solid #333;">
+            <canvas id="canvas_${id}" width="600" height="300"></canvas>
+        </div>
+    </div>
+
     <div class="qnb-footer">
         <div class="qnb-footer-left">
             <span class="qnb-badge ${badgeClass}">${badgeIcon} ${dbType}</span>
@@ -329,7 +369,71 @@ export function renderTable(
         </div>
         <span class="qnb-time">⏱ ${elapsedMs}ms</span>
     </div>
-</div>`;
+</div>
+
+<script>
+    // Export JSON
+    window.exportJSON_${id} = function() {
+        const data = ${rawData};
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'export.json';
+        a.click();
+    };
+
+    // Export CSV
+    window.exportCSV_${id} = function() {
+        const data = ${rawData};
+        if(data.length === 0) return;
+        const keys = Object.keys(data[0]);
+        let csv = keys.join(',') + '\\n';
+        data.forEach(row => {
+            csv += keys.map(k => {
+                let v = row[k] === null ? '' : String(row[k]);
+                return '"' + v.replace(/"/g, '""') + '"';
+            }).join(',') + '\\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'export.csv';
+        a.click();
+    };
+
+    // Render Basic Chart (if Chart.js is missing, draw simple rects on canvas)
+    window.renderChart_${id} = function() {
+        const data = ${rawData};
+        if(data.length === 0) return;
+        
+        const canvas = document.getElementById('canvas_${id}');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Find a numeric column and a label column
+        const keys = Object.keys(data[0]);
+        let numKey = keys.find(k => typeof data[0][k] === 'number') || keys[1] || keys[0];
+        let lblKey = keys.find(k => k !== numKey) || keys[0];
+        
+        const vals = data.slice(0, 50).map(d => Number(d[numKey]) || 0); // max 50 bars
+        const maxVal = Math.max(...vals, 1);
+        
+        const barWidth = Math.max((canvas.width - 40) / vals.length, 5);
+        ctx.fillStyle = '#4fc1ff';
+        
+        vals.forEach((v, i) => {
+            const h = (v / maxVal) * (canvas.height - 40);
+            ctx.fillRect(20 + i * barWidth, canvas.height - 20 - h, barWidth - 2, h);
+        });
+        
+        ctx.fillStyle = '#aaa';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('Chart for ' + numKey + ' (max 50 rows)', 20, 15);
+    };
+</script>
+`;
 }
 
 // ─── Error ──────────────────────────────────────────────────────

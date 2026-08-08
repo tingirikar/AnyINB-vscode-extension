@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import { MySqlExecutor, MySqlConfig } from './executors/mysqlExecutor';
 import { MongoExecutor, MongoConfig } from './executors/mongoExecutor';
+import { PostgresExecutor, PostgresConfig } from './executors/postgresExecutor';
+import { SqliteExecutor, SqliteConfig } from './executors/sqliteExecutor';
+import { RedisExecutor, RedisConfig } from './executors/redisExecutor';
 
 /**
  * Manages database connections for MySQL and MongoDB.
@@ -12,12 +15,18 @@ export class ConnectionManager {
 
     private mysqlExecutor: MySqlExecutor;
     private mongoExecutor: MongoExecutor;
+    private postgresExecutor: PostgresExecutor;
+    private sqliteExecutor: SqliteExecutor;
+    private redisExecutor: RedisExecutor;
     private context: vscode.ExtensionContext;
 
     private constructor(context: vscode.ExtensionContext) {
         this.context = context;
         this.mysqlExecutor = new MySqlExecutor();
         this.mongoExecutor = new MongoExecutor();
+        this.postgresExecutor = new PostgresExecutor();
+        this.sqliteExecutor = new SqliteExecutor();
+        this.redisExecutor = new RedisExecutor();
     }
 
     static getInstance(context: vscode.ExtensionContext): ConnectionManager {
@@ -35,6 +44,18 @@ export class ConnectionManager {
         return this.mongoExecutor;
     }
 
+    getPostgresExecutor(): PostgresExecutor {
+        return this.postgresExecutor;
+    }
+
+    getSqliteExecutor(): SqliteExecutor {
+        return this.sqliteExecutor;
+    }
+
+    getRedisExecutor(): RedisExecutor {
+        return this.redisExecutor;
+    }
+
     /**
      * Interactive connection configuration via VS Code UI.
      */
@@ -43,6 +64,9 @@ export class ConnectionManager {
             [
                 { label: '🐬  MySQL', description: 'Connect to a MySQL database', value: 'mysql' },
                 { label: '🍃  MongoDB', description: 'Connect to a MongoDB database', value: 'mongodb' },
+                { label: '🐘  PostgreSQL', description: 'Connect to a PostgreSQL database', value: 'postgres' },
+                { label: '🪶  SQLite', description: 'Connect to a SQLite database', value: 'sqlite' },
+                { label: '🟥  Redis', description: 'Connect to a Redis server', value: 'redis' },
             ],
             {
                 title: 'AnyINB — Select Database Type',
@@ -56,8 +80,14 @@ export class ConnectionManager {
 
         if (dbType.value === 'mysql') {
             await this.configureMySql();
-        } else {
+        } else if (dbType.value === 'mongodb') {
             await this.configureMongo();
+        } else if (dbType.value === 'postgres') {
+            await this.configurePostgres();
+        } else if (dbType.value === 'sqlite') {
+            await this.configureSqlite();
+        } else if (dbType.value === 'redis') {
+            await this.configureRedis();
         }
     }
 
@@ -187,6 +217,90 @@ export class ConnectionManager {
         }
     }
 
+    private async configurePostgres(): Promise<void> {
+        const saved = this.context.globalState.get<Partial<PostgresConfig>>('postgres.config', {});
+
+        const connectionString = await vscode.window.showInputBox({
+            title: 'PostgreSQL — Connection String',
+            prompt: 'Enter PostgreSQL connection string',
+            value: saved.connectionString || 'postgresql://user:password@localhost:5432/mydb',
+            ignoreFocusOut: true
+        });
+        if (!connectionString) { return; }
+
+        const config: PostgresConfig = { connectionString };
+
+        try {
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: '🐘 Connecting to PostgreSQL...' },
+                async () => {
+                    await this.postgresExecutor.connect(config);
+                }
+            );
+
+            await this.context.globalState.update('postgres.config', config);
+            vscode.window.showInformationMessage(`🐘 Connected to PostgreSQL`);
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to connect to PostgreSQL: ${err.message}`);
+        }
+    }
+
+    private async configureSqlite(): Promise<void> {
+        const saved = this.context.globalState.get<Partial<SqliteConfig>>('sqlite.config', {});
+
+        const database = await vscode.window.showInputBox({
+            title: 'SQLite — Database File',
+            prompt: 'Enter SQLite database file path (or :memory:)',
+            value: saved.database || ':memory:',
+            ignoreFocusOut: true
+        });
+        if (!database) { return; }
+
+        const config: SqliteConfig = { database };
+
+        try {
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: '🪶 Connecting to SQLite...' },
+                async () => {
+                    await this.sqliteExecutor.connect(config);
+                }
+            );
+
+            await this.context.globalState.update('sqlite.config', config);
+            vscode.window.showInformationMessage(`🪶 Connected to SQLite: ${config.database}`);
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to connect to SQLite: ${err.message}`);
+        }
+    }
+
+    private async configureRedis(): Promise<void> {
+        const saved = this.context.globalState.get<Partial<RedisConfig>>('redis.config', {});
+
+        const connectionString = await vscode.window.showInputBox({
+            title: 'Redis — Connection String',
+            prompt: 'Enter Redis connection string',
+            value: saved.connectionString || 'redis://localhost:6379',
+            ignoreFocusOut: true
+        });
+        if (!connectionString) { return; }
+
+        const config: RedisConfig = { connectionString };
+
+        try {
+            await vscode.window.withProgress(
+                { location: vscode.ProgressLocation.Notification, title: '🟥 Connecting to Redis...' },
+                async () => {
+                    await this.redisExecutor.connect(config);
+                }
+            );
+
+            await this.context.globalState.update('redis.config', config);
+            vscode.window.showInformationMessage(`🟥 Connected to Redis`);
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to connect to Redis: ${err.message}`);
+        }
+    }
+
     /**
      * Try to restore saved connections on startup.
      */
@@ -219,11 +333,38 @@ export class ConnectionManager {
                 // Silent failure
             }
         }
+
+        // Restore Postgres
+        const postgresConfig = this.context.globalState.get<PostgresConfig>('postgres.config');
+        if (postgresConfig && postgresConfig.connectionString) {
+            try {
+                await this.postgresExecutor.connect(postgresConfig);
+            } catch { }
+        }
+
+        // Restore Sqlite
+        const sqliteConfig = this.context.globalState.get<SqliteConfig>('sqlite.config');
+        if (sqliteConfig && sqliteConfig.database) {
+            try {
+                await this.sqliteExecutor.connect(sqliteConfig);
+            } catch { }
+        }
+
+        // Restore Redis
+        const redisConfig = this.context.globalState.get<RedisConfig>('redis.config');
+        if (redisConfig && redisConfig.connectionString) {
+            try {
+                await this.redisExecutor.connect(redisConfig);
+            } catch { }
+        }
     }
 
     async disconnectAll(): Promise<void> {
         await this.mysqlExecutor.disconnect();
         await this.mongoExecutor.disconnect();
+        await this.postgresExecutor.disconnect();
+        await this.sqliteExecutor.disconnect();
+        await this.redisExecutor.disconnect();
     }
 
     getMySqlStatus(): string {
@@ -238,6 +379,28 @@ export class ConnectionManager {
         if (this.mongoExecutor.isConnected()) {
             const cfg = this.mongoExecutor.getConfig();
             return cfg ? `🍃 ${cfg.database}` : '🍃 Connected';
+        }
+        return '';
+    }
+
+    getPostgresStatus(): string {
+        if (this.postgresExecutor.isConnected()) {
+            return '🐘 Connected';
+        }
+        return '';
+    }
+
+    getSqliteStatus(): string {
+        if (this.sqliteExecutor.isConnected()) {
+            const cfg = this.sqliteExecutor.getConfig();
+            return cfg ? `🪶 ${cfg.database}` : '🪶 Connected';
+        }
+        return '';
+    }
+
+    getRedisStatus(): string {
+        if (this.redisExecutor.isConnected()) {
+            return '🟥 Connected';
         }
         return '';
     }

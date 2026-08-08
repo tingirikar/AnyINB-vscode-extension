@@ -26,6 +26,11 @@ export class HttpExecutor {
 
     async execute(code: string): Promise<HttpResult> {
         try {
+            // Replace {{ENV_VAR}} with process.env.ENV_VAR
+            code = code.replace(/\{\{([a-zA-Z0-9_]+)\}\}/g, (match, p1) => {
+                return process.env[p1] || match;
+            });
+
             const parsed = this._parseRequest(code);
             const startTime = Date.now();
 

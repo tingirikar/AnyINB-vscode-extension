@@ -25,17 +25,16 @@ export class StatusBarManager implements vscode.Disposable {
     }
 
     update(): void {
-        const mysqlStatus = this.connectionManager.getMySqlStatus();
-        const mongoStatus = this.connectionManager.getMongoStatus();
+        const statuses = [
+            this.connectionManager.getMySqlStatus(),
+            this.connectionManager.getMongoStatus(),
+            this.connectionManager.getPostgresStatus(),
+            this.connectionManager.getSqliteStatus(),
+            this.connectionManager.getRedisStatus()
+        ].filter(s => s.length > 0);
 
-        if (mysqlStatus && mongoStatus) {
-            this.statusBarItem.text = `$(database) ${mysqlStatus} | ${mongoStatus}`;
-            this.statusBarItem.backgroundColor = undefined;
-        } else if (mysqlStatus) {
-            this.statusBarItem.text = `$(database) ${mysqlStatus}`;
-            this.statusBarItem.backgroundColor = undefined;
-        } else if (mongoStatus) {
-            this.statusBarItem.text = `$(database) ${mongoStatus}`;
+        if (statuses.length > 0) {
+            this.statusBarItem.text = `$(database) ` + statuses.join(' | ');
             this.statusBarItem.backgroundColor = undefined;
         } else {
             this.statusBarItem.text = '$(notebook) AnyINB: No DB Connection';

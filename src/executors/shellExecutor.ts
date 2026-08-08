@@ -20,7 +20,8 @@ export class ShellExecutor {
     async execute(
         code: string,
         shellType: 'shellscript' | 'powershell' | 'bat',
-        timeout: number = 30000
+        timeout: number = 30000,
+        inputProvider?: (prompt?: string) => Promise<string | undefined>
     ): Promise<ShellResult> {
         const isWindows = os.platform() === 'win32';
 
@@ -51,23 +52,34 @@ export class ShellExecutor {
 
         return new Promise((resolve) => {
             const proc = cp.spawn(shell, shellArgs, {
-                timeout,
                 env: { ...process.env },
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
 
             let stdout = '';
             let stderr = '';
+            let killed = false;
+            let exited = false;
+            let lastOutputTime = Date.now();
 
             proc.stdout.on('data', (data) => {
                 stdout += data.toString();
+                lastOutputTime = Date.now();
             });
 
             proc.stderr.on('data', (data) => {
                 stderr += data.toString();
+                lastOutputTime = Date.now();
             });
 
+            const timer = setTimeout(() => {
+                killed = true;
+                proc.kill('SIGKILL');
+            }, timeout);
+
             proc.on('error', (err) => {
+                exited = true;
+                clearTimeout(timer);
                 resolve({
                     stdout,
                     stderr,
@@ -77,12 +89,57 @@ export class ShellExecutor {
             });
 
             proc.on('close', (exitCode) => {
+                exited = true;
+                clearTimeout(timer);
+                if (killed) {
+                    resolve({
+                        stdout,
+                        stderr: stderr + '\n⏱ Process timed out after ' + (timeout / 1000) + 's',
+                        exitCode: 1,
+                    });
+                    return;
+                }
                 resolve({
                     stdout,
                     stderr,
                     exitCode: exitCode ?? 0,
                 });
             });
+
+            if (inputProvider) {
+                const inputLoop = async () => {
+                    while (!exited && !killed) {
+                        await new Promise(r => setTimeout(r, 300));
+                        if (exited || killed) { break; }
+
+                        const idleTime = Date.now() - lastOutputTime;
+                        if (idleTime >= 200) {
+                            const lines = stdout.split('\n');
+                            const lastLine = lines[lines.length - 1] || '';
+                            const promptText = lastLine.trim() || undefined;
+
+                            const userInput = await inputProvider(promptText);
+
+                            if (exited || killed) { break; }
+
+                            if (userInput === undefined) {
+                                proc.kill('SIGKILL');
+                                break;
+                            }
+
+                            try {
+                                proc.stdin.write(userInput + '\n');
+                                lastOutputTime = Date.now();
+                            } catch {
+                                break;
+                            }
+                        }
+                    }
+                };
+                inputLoop();
+            } else {
+                proc.stdin.end();
+            }
         });
     }
 }
