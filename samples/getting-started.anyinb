@@ -3,52 +3,62 @@
     {
       "kind": "markdown",
       "language": "markdown",
-      "value": "# 🚀 AnyINB — The Ultimate Universal Notebook\n\nWelcome to your universal interactive notebook! \n\n## 🌟 New Features Showcase\n- **Persistent Sessions**: Variables defined in one Python/Node/Bash cell carry over to the next!\n- **Data Visualization**: Click the 📊 **Chart** button on any table output to render an interactive Bar Chart.\n- **Data Exporting**: Instantly export query results to CSV or JSON with one click.\n- **.env Variables**: Create a `.env` file in your workspace, and use `{{VAR_NAME}}` in HTTP/WebSocket/GraphQL queries.\n- **Docker Execution**: Turn on `anyinb.useDocker` in VS Code settings to run code securely inside containers.\n\n---"
+      "value": "# 🚀 Welcome to AnyINB — The Universal Polyglot Notebook\n\nAnyINB lets you run **Python, JavaScript, MongoDB, C++, Java, Rust, Go, SQL, Bash/WSL, and REST APIs** in the exact same notebook file!\n\n---"
     },
     {
       "kind": "markdown",
       "language": "markdown",
-      "value": "## 🐍 Python Persistent REPL\nVariables now persist across cell executions!"
+      "value": "## 🐍 1. Python with Inline Seaborn & Matplotlib\nRun the cell below to see native inline plotting with persistent REPL variables:"
     },
     {
       "kind": "code",
       "language": "python",
-      "value": "print(\"Initializing variables...\")\nmy_name = \"AnyINB Explorer\"\ncounter = 1"
+      "value": "import matplotlib.pyplot as plt\nimport numpy as np\nimport pandas as pd\nimport seaborn as sns\n\n# Generate sample data\nnp.random.seed(42)\ndays = np.arange(1, 51)\nrevenue = 200 + (days * 2.5) + np.random.normal(0, 15, size=50)\ndf = pd.DataFrame({'Day': days, 'Revenue': revenue})\n\n# Plot with Seaborn\nsns.set_theme(style=\"whitegrid\")\nfig, ax = plt.subplots(figsize=(10, 4))\nsns.lineplot(data=df, x='Day', y='Revenue', color='royalblue', linewidth=2.5, ax=ax)\nax.set_title(\"Revenue Growth Over Time\", fontsize=14, fontweight='bold')\nplt.tight_layout()\nplt.show()"
+    },
+    {
+      "kind": "markdown",
+      "language": "markdown",
+      "value": "---\n## 🍃 2. MongoDB Shell Commands\nRun Mongo commands directly in the notebook (works with live MongoDB or built-in Sandbox):"
+    },
+    {
+      "kind": "code",
+      "language": "mongodb",
+      "value": "use ecommerce\nshow collections\ndb.users.find()"
+    },
+    {
+      "kind": "markdown",
+      "language": "markdown",
+      "value": "---\n## 🌉 3. Polyglot Data Piping\nThe data queried from MongoDB above is automatically available in Python as `IN`:"
     },
     {
       "kind": "code",
       "language": "python",
-      "value": "counter += 1\nprint(f\"Hello {my_name}! Counter is now {counter}\")"
+      "value": "# 'IN' was automatically injected from the MongoDB cell above!\nprint(f\"Received {len(IN)} documents from MongoDB into Python:\")\nprint(IN.head() if hasattr(IN, 'head') else IN)"
     },
     {
       "kind": "markdown",
       "language": "markdown",
-      "value": "---\n## 📊 Data Visualization & Exporting\nRun the SQL below (needs connection), then click **Chart**, **CSV**, or **JSON** in the output header!"
+      "value": "---\n## ☕ 4. Smart Language Auto-Detection (Java / C++ / Rust)\nPaste code from any language without worrying about dropdowns:"
     },
     {
       "kind": "code",
-      "language": "sqlite",
-      "value": "CREATE TABLE IF NOT EXISTS sales (month VARCHAR(20), revenue INT);\nINSERT INTO sales VALUES ('Jan', 500), ('Feb', 800), ('Mar', 1200);\nSELECT * FROM sales;"
+      "language": "java",
+      "value": "public class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello from Java inside AnyINB! ☕\");\n    }\n}"
     },
     {
       "kind": "markdown",
       "language": "markdown",
-      "value": "---\n## 🌐 GraphQL API Examples\nChange the cell language to `graphql`."
+      "value": "---\n## 🌐 5. Instant Live Mock API Server\nDefine a local endpoint directly in a cell with `@endpoint`:"
     },
     {
       "kind": "code",
-      "language": "graphql",
-      "value": "POST https://countries.trevorblades.com/\n\nquery {\n  countries(filter: {continent: {eq: \"EU\"}}) {\n    name\n    code\n  }\n}"
-    },
-    {
-      "kind": "markdown",
-      "language": "markdown",
-      "value": "---\n## 🔌 WebSockets Example\nChange the cell language to `websocket`."
+      "language": "javascript",
+      "value": "// @endpoint GET /api/products\n[\n  { \"id\": 101, \"title\": \"AnyINB Pro License\", \"price\": 0 },\n  { \"id\": 102, \"title\": \"VS Code Supercharger\", \"price\": 0 }\n]"
     },
     {
       "kind": "code",
-      "language": "websocket",
-      "value": "ws://echo.websocket.events\n\nHello from AnyINB!"
+      "language": "http",
+      "value": "GET http://localhost:3456/api/products"
     }
   ]
 }

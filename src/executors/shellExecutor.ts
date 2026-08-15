@@ -19,7 +19,7 @@ export class ShellExecutor {
      */
     async execute(
         code: string,
-        shellType: 'shellscript' | 'powershell' | 'bat',
+        shellType: 'shellscript' | 'powershell' | 'bat' | 'cmd' | 'wsl' | 'bash',
         timeout: number = 30000,
         inputProvider?: (prompt?: string) => Promise<string | undefined>
     ): Promise<ShellResult> {
@@ -34,13 +34,24 @@ export class ShellExecutor {
                 shellArgs = ['-NoProfile', '-Command', code];
                 break;
             case 'bat':
+            case 'cmd':
                 shell = 'cmd.exe';
                 shellArgs = ['/c', code];
                 break;
+            case 'wsl':
+                if (isWindows) {
+                    shell = 'wsl.exe';
+                    shellArgs = ['-e', 'bash', '-c', code];
+                } else {
+                    shell = '/bin/bash';
+                    shellArgs = ['-c', code];
+                }
+                break;
+            case 'bash':
             case 'shellscript':
             default:
                 if (isWindows) {
-                    // Use Git Bash or WSL bash on Windows if available, fallback to powershell
+                    // Try bash, if unavailable fallback to powershell
                     shell = 'bash';
                     shellArgs = ['-c', code];
                 } else {
@@ -106,40 +117,7 @@ export class ShellExecutor {
                 });
             });
 
-            if (inputProvider) {
-                const inputLoop = async () => {
-                    while (!exited && !killed) {
-                        await new Promise(r => setTimeout(r, 300));
-                        if (exited || killed) { break; }
-
-                        const idleTime = Date.now() - lastOutputTime;
-                        if (idleTime >= 200) {
-                            const lines = stdout.split('\n');
-                            const lastLine = lines[lines.length - 1] || '';
-                            const promptText = lastLine.trim() || undefined;
-
-                            const userInput = await inputProvider(promptText);
-
-                            if (exited || killed) { break; }
-
-                            if (userInput === undefined) {
-                                proc.kill('SIGKILL');
-                                break;
-                            }
-
-                            try {
-                                proc.stdin.write(userInput + '\n');
-                                lastOutputTime = Date.now();
-                            } catch {
-                                break;
-                            }
-                        }
-                    }
-                };
-                inputLoop();
-            } else {
-                proc.stdin.end();
-            }
+            proc.stdin?.end();
         });
     }
 }

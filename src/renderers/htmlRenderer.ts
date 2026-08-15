@@ -1,678 +1,217 @@
 /**
  * HTML renderer for AnyINB notebook cells.
- * Produces beautiful, VS Code-themed output for all cell types.
+ * 100% Seamless, Pure .ipynb-identical rendering with syntax-colored text.
+ * Zero AI-slop cards, zero background boxes, zero artificial borders.
  */
 
+import * as vscode from 'vscode';
 import { HttpResult } from '../executors/httpExecutor';
+import { DataContext } from '../dataContext';
 
-const STYLES = `
-<style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    .qnb-output {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        font-size: 13px;
-        color: #cccccc;
-        background: transparent;
-        width: 100%;
-    }
-
-    /* ── Table ───────────────────────────────────────────── */
-    .qnb-table-wrapper {
-        overflow-x: auto;
-        border-radius: 6px;
-        border: 1px solid #333333;
-        margin-bottom: 8px;
-    }
-
-    .qnb-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 12.5px;
-        line-height: 1.5;
-    }
-
-    .qnb-table thead { position: sticky; top: 0; z-index: 1; }
-
-    .qnb-table th {
-        background: #252526;
-        color: #4fc1ff;
-        font-weight: 600;
-        text-align: left;
-        padding: 8px 12px;
-        border-bottom: 2px solid #007acc;
-        white-space: nowrap;
-        font-size: 11.5px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .qnb-table td {
-        padding: 6px 12px;
-        border-bottom: 1px solid #2d2d2d;
-        max-width: 400px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .qnb-table tr:hover td { background: #2a2d2e; }
-    .qnb-table tr:nth-child(even) td { background: #1e1e1e; }
-    .qnb-table tr:nth-child(even):hover td { background: #2a2d2e; }
-
-    .qnb-null { color: #666; font-style: italic; }
-    .qnb-number { color: #b5cea8; }
-    .qnb-string { color: #ce9178; }
-    .qnb-boolean { color: #569cd6; }
-    .qnb-object { color: #9cdcfe; cursor: pointer; }
-
-    /* ── Footer ──────────────────────────────────────────── */
-    .qnb-footer {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 6px 4px;
-        font-size: 11px;
-        color: #888;
-    }
-
-    .qnb-footer-left {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    .qnb-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        padding: 2px 8px;
-        border-radius: 10px;
-        font-size: 10.5px;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-    }
-
-    .qnb-badge-mysql { background: #00758f22; color: #00b4d8; border: 1px solid #00758f44; }
-    .qnb-badge-mongodb { background: #00684a22; color: #00ed64; border: 1px solid #00684a44; }
-    .qnb-badge-generic { background: #ffffff11; color: #aaa; border: 1px solid #ffffff22; }
-
-    .qnb-rows-count { color: #aaa; }
-    .qnb-time { color: #666; }
-
-    /* ── Console Output ─────────────────────────────────── */
-    .qnb-console {
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', 'Courier New', monospace;
-        font-size: 12.5px;
-        line-height: 1.6;
-        background: #1a1a1a;
-        border: 1px solid #333;
-        border-radius: 6px;
-        padding: 12px 16px;
-        white-space: pre-wrap;
-        word-break: break-word;
-        overflow-x: auto;
-        color: #d4d4d4;
-        margin-bottom: 8px;
-    }
-
-    .qnb-stderr {
-        color: #f4a460;
-    }
-
-    /* ── Error ───────────────────────────────────────────── */
-    .qnb-error {
-        background: #5a1d1d;
-        border: 1px solid #f4484833;
-        border-left: 4px solid #f44848;
-        border-radius: 6px;
-        padding: 12px 16px;
-        color: #f48771;
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-        font-size: 12.5px;
-        line-height: 1.6;
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-
-    .qnb-error-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-weight: 700;
-        margin-bottom: 6px;
-        color: #f44848;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* ── Success ─────────────────────────────────────────── */
-    .qnb-success {
-        background: #1a3a1a;
-        border: 1px solid #2ea04333;
-        border-left: 4px solid #2ea043;
-        border-radius: 6px;
-        padding: 12px 16px;
-        color: #7ee787;
-        font-size: 12.5px;
-        line-height: 1.5;
-    }
-
-    .qnb-success-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-weight: 600;
-        margin-bottom: 4px;
-        color: #2ea043;
-        font-size: 12px;
-    }
-
-    /* ── Connection Required ─────────────────────────────── */
-    .qnb-connect {
-        background: #1e2a3a;
-        border: 1px solid #007acc44;
-        border-left: 4px solid #007acc;
-        border-radius: 6px;
-        padding: 12px 16px;
-        color: #7ec8e3;
-        font-size: 12.5px;
-        line-height: 1.6;
-    }
-
-    .qnb-connect-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-weight: 600;
-        margin-bottom: 6px;
-        color: #4fc1ff;
-        font-size: 12px;
-    }
-
-    .qnb-connect code {
-        background: #ffffff12;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-        font-size: 11.5px;
-    }
-
-    /* ── JSON ────────────────────────────────────────────── */
-    .qnb-json {
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-        font-size: 12px;
-        line-height: 1.6;
-        background: #1e1e1e;
-        border: 1px solid #333;
-        border-radius: 6px;
-        padding: 12px 16px;
-        overflow-x: auto;
-        white-space: pre-wrap;
-        word-break: break-word;
-    }
-
-    .qnb-json .json-key { color: #9cdcfe; }
-    .qnb-json .json-string { color: #ce9178; }
-    .qnb-json .json-number { color: #b5cea8; }
-    .qnb-json .json-boolean { color: #569cd6; }
-    .qnb-json .json-null { color: #569cd6; }
-
-    /* ── HTTP Response ───────────────────────────────────── */
-    .qnb-http-status {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 4px;
-        font-weight: 700;
-        font-size: 13px;
-        margin-bottom: 8px;
-    }
-
-    .qnb-http-2xx { background: #2ea04322; color: #7ee787; border: 1px solid #2ea04344; }
-    .qnb-http-3xx { background: #007acc22; color: #4fc1ff; border: 1px solid #007acc44; }
-    .qnb-http-4xx { background: #f4484822; color: #f48771; border: 1px solid #f4484844; }
-    .qnb-http-5xx { background: #a3333322; color: #f44848; border: 1px solid #a3333344; }
-
-    .qnb-http-headers {
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-        font-size: 11px;
-        color: #888;
-        margin-bottom: 8px;
-        padding: 8px 12px;
-        background: #1a1a1a;
-        border-radius: 4px;
-        border: 1px solid #2d2d2d;
-    }
-
-    .qnb-http-headers summary {
-        cursor: pointer;
-        color: #aaa;
-        font-size: 11px;
-        margin-bottom: 4px;
-    }
-
-    .qnb-http-header-key { color: #4fc1ff; }
-    .qnb-http-header-val { color: #ce9178; }
-
-    /* ── Runtime Not Found ───────────────────────────────── */
-    .qnb-runtime-missing {
-        background: #3a2a1a;
-        border: 1px solid #f4a46044;
-        border-left: 4px solid #f4a460;
-        border-radius: 6px;
-        padding: 12px 16px;
-        color: #f4c97e;
-        font-size: 12.5px;
-        line-height: 1.6;
-    }
-
-    .qnb-runtime-missing-title {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-weight: 600;
-        margin-bottom: 6px;
-        color: #f4a460;
-        font-size: 12px;
-    }
-
-    .qnb-runtime-missing code {
-        background: #ffffff12;
-        padding: 2px 6px;
-        border-radius: 3px;
-        font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-        font-size: 11.5px;
-    }
-
-    /* ── Tabs ── */
-    .qnb-tabs {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 8px;
-    }
-    .qnb-tab-btn {
-        background: #252526;
-        border: 1px solid #333;
-        color: #ccc;
-        padding: 4px 12px;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 11px;
-    }
-    .qnb-tab-btn:hover { background: #2d2d2d; }
-    .qnb-tab-btn.active { background: #007acc; color: white; border-color: #007acc; }
-    .qnb-tab-content { display: none; }
-    .qnb-tab-content.active { display: block; }
-</style>
-`;
-
-// ─── Table ──────────────────────────────────────────────────────
-
-export function renderTable(
-    rows: Record<string, any>[],
-    fields: string[],
-    elapsedMs: number,
-    dbType: string
-): string {
-    if (!fields || fields.length === 0) {
-        if (rows.length > 0) { fields = Object.keys(rows[0]); }
-        else { return renderSuccess('Query returned 0 rows.', elapsedMs, dbType); }
-    }
-
-    const maxRows = 500;
-    const displayRows = rows.slice(0, maxRows);
-    const truncated = rows.length > maxRows;
-
-    const headerCells = fields.map(f => `<th>${esc(String(f))}</th>`).join('');
-    const bodyRows = displayRows.map(row => {
-        const cells = fields.map(f => `<td>${fmtCell(row[f])}</td>`).join('');
-        return `<tr>${cells}</tr>`;
-    }).join('\n');
-
-    const { badgeClass, badgeIcon } = getBadge(dbType);
-    const id = "out_" + Math.random().toString(36).substr(2, 9);
-    
-    // Pass raw data to script safely
-    const rawData = JSON.stringify(rows).replace(/</g, '\\u003c');
-
-    return `${STYLES}
-<div class="qnb-output" id="${id}">
-    <div class="qnb-tabs">
-        <button class="qnb-tab-btn active" onclick="document.getElementById('${id}').querySelector('.tab-table').style.display='block'; document.getElementById('${id}').querySelector('.tab-chart').style.display='none';">📄 Table</button>
-        <button class="qnb-tab-btn" onclick="document.getElementById('${id}').querySelector('.tab-table').style.display='none'; document.getElementById('${id}').querySelector('.tab-chart').style.display='block'; window.renderChart_${id}();">📊 Chart</button>
-        <button class="qnb-tab-btn" onclick="window.exportCSV_${id}()">⬇️ CSV</button>
-        <button class="qnb-tab-btn" onclick="window.exportJSON_${id}()">⬇️ JSON</button>
-    </div>
-
-    <div class="qnb-tab-content active tab-table">
-        <div class="qnb-table-wrapper">
-            <table class="qnb-table">
-                <thead><tr>${headerCells}</tr></thead>
-                <tbody>${bodyRows}</tbody>
-            </table>
-        </div>
-    </div>
-    
-    <div class="qnb-tab-content tab-chart">
-        <div style="background:#1e1e1e; padding:16px; border-radius:6px; border:1px solid #333;">
-            <canvas id="canvas_${id}" width="600" height="300"></canvas>
-        </div>
-    </div>
-
-    <div class="qnb-footer">
-        <div class="qnb-footer-left">
-            <span class="qnb-badge ${badgeClass}">${badgeIcon} ${dbType}</span>
-            <span class="qnb-rows-count">${rows.length} row${rows.length !== 1 ? 's' : ''}${truncated ? ` (showing first ${maxRows})` : ''}</span>
-        </div>
-        <span class="qnb-time">⏱ ${elapsedMs}ms</span>
-    </div>
-</div>
-
-<script>
-    // Export JSON
-    window.exportJSON_${id} = function() {
-        const data = ${rawData};
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'export.json';
-        a.click();
-    };
-
-    // Export CSV
-    window.exportCSV_${id} = function() {
-        const data = ${rawData};
-        if(data.length === 0) return;
-        const keys = Object.keys(data[0]);
-        let csv = keys.join(',') + '\\n';
-        data.forEach(row => {
-            csv += keys.map(k => {
-                let v = row[k] === null ? '' : String(row[k]);
-                return '"' + v.replace(/"/g, '""') + '"';
-            }).join(',') + '\\n';
-        });
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'export.csv';
-        a.click();
-    };
-
-    // Render Basic Chart (if Chart.js is missing, draw simple rects on canvas)
-    window.renderChart_${id} = function() {
-        const data = ${rawData};
-        if(data.length === 0) return;
-        
-        const canvas = document.getElementById('canvas_${id}');
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Find a numeric column and a label column
-        const keys = Object.keys(data[0]);
-        let numKey = keys.find(k => typeof data[0][k] === 'number') || keys[1] || keys[0];
-        let lblKey = keys.find(k => k !== numKey) || keys[0];
-        
-        const vals = data.slice(0, 50).map(d => Number(d[numKey]) || 0); // max 50 bars
-        const maxVal = Math.max(...vals, 1);
-        
-        const barWidth = Math.max((canvas.width - 40) / vals.length, 5);
-        ctx.fillStyle = '#4fc1ff';
-        
-        vals.forEach((v, i) => {
-            const h = (v / maxVal) * (canvas.height - 40);
-            ctx.fillRect(20 + i * barWidth, canvas.height - 20 - h, barWidth - 2, h);
-        });
-        
-        ctx.fillStyle = '#aaa';
-        ctx.font = '10px sans-serif';
-        ctx.fillText('Chart for ' + numKey + ' (max 50 rows)', 20, 15);
-    };
-</script>
-`;
+export interface RendererConfig {
+    theme: string;
+    maxHeight: number;
+    fontSize: number;
 }
 
-// ─── Error ──────────────────────────────────────────────────────
+export function getRendererConfig(): RendererConfig {
+    try {
+        const c = vscode.workspace.getConfiguration('anyinb');
+        return {
+            theme: c.get<string>('outputTheme', 'mongosh-terminal'),
+            maxHeight: c.get<number>('maxOutputHeight', 450),
+            fontSize: c.get<number>('fontSize', 13)
+        };
+    } catch {
+        return { theme: 'mongosh-terminal', maxHeight: 450, fontSize: 13 };
+    }
+}
 
-export function renderError(message: string, source?: string): string {
-    const badge = source
-        ? (() => { const { badgeClass, badgeIcon } = getBadge(source); return `<span class="qnb-badge ${badgeClass}">${badgeIcon} ${source}</span>`; })()
-        : '';
+const STYLES = `<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+.qnb-output{font-family:Consolas,'Cascadia Code','Fira Code','Courier New',monospace;font-size:var(--qnb-font-size,13px);line-height:1.45;color:var(--qnb-text);background:transparent!important;width:100%;margin:2px 0 4px 0;}
+.qnb-output{--qnb-text:#d4d4d4;--qnb-key:#e0e0e0;--qnb-str:#23d18b;--qnb-num:#23d18b;--qnb-bool:#e5c07b;--qnb-null:#888888;--qnb-id:#23d18b;--qnb-border:rgba(128,128,128,0.2);--qnb-hover:rgba(255,255,255,0.04);}
+.qnb-output[data-theme="dracula"]{--qnb-text:#f8f8f2;--qnb-key:#f8f8f2;--qnb-str:#50fa7b;--qnb-num:#bd93f9;--qnb-bool:#ff79c6;--qnb-null:#6272a4;--qnb-id:#50fa7b;--qnb-border:rgba(68,71,90,0.4);--qnb-hover:rgba(68,71,90,0.2);}
+.qnb-output[data-theme="tokyo-night"]{--qnb-text:#a9b1d6;--qnb-key:#c0caf5;--qnb-str:#9ece6a;--qnb-num:#ff9e64;--qnb-bool:#f7768e;--qnb-null:#565f89;--qnb-id:#9ece6a;--qnb-border:rgba(41,46,66,0.5);--qnb-hover:rgba(41,46,66,0.25);}
+.qnb-output[data-theme="monokai"]{--qnb-text:#f8f8f2;--qnb-key:#66d9ef;--qnb-str:#a6e22e;--qnb-num:#ae81ff;--qnb-bool:#f92672;--qnb-null:#75715e;--qnb-id:#a6e22e;--qnb-border:rgba(62,61,50,0.5);--qnb-hover:rgba(62,61,50,0.25);}
+.qnb-output[data-theme="one-dark"]{--qnb-text:#abb2bf;--qnb-key:#61afef;--qnb-str:#98c379;--qnb-num:#d19a66;--qnb-bool:#e06c75;--qnb-null:#5c6370;--qnb-id:#98c379;--qnb-border:rgba(62,68,81,0.4);--qnb-hover:rgba(62,68,81,0.2);}
+.qnb-output[data-theme="nord"]{--qnb-text:#eceff4;--qnb-key:#88c0d0;--qnb-str:#a3be8c;--qnb-num:#b48ead;--qnb-bool:#bf616a;--qnb-null:#4c566a;--qnb-id:#a3be8c;--qnb-border:rgba(67,76,94,0.4);--qnb-hover:rgba(67,76,94,0.2);}
+.qnb-output[data-theme="github-dark"]{--qnb-text:#c9d1d9;--qnb-key:#79c0ff;--qnb-str:#7ee787;--qnb-num:#79c0ff;--qnb-bool:#ff7b72;--qnb-null:#8b949e;--qnb-id:#7ee787;--qnb-border:rgba(48,54,61,0.4);--qnb-hover:rgba(48,54,61,0.2);}
+.qnb-output[data-theme="solarized-dark"]{--qnb-text:#839496;--qnb-key:#268bd2;--qnb-str:#859900;--qnb-num:#2aa198;--qnb-bool:#cb4b16;--qnb-null:#586e75;--qnb-id:#859900;--qnb-border:rgba(88,110,117,0.4);--qnb-hover:rgba(88,110,117,0.2);}
+.qnb-mongosh,.qnb-json{font-family:inherit;font-size:inherit;line-height:inherit;background:transparent!important;border:none!important;padding:0!important;margin:0!important;white-space:pre-wrap;word-break:break-word;color:var(--qnb-text);overflow-y:auto;max-height:var(--qnb-max-height,450px);}
+.qnb-mongosh::-webkit-scrollbar,.qnb-table-wrap::-webkit-scrollbar{width:6px;height:6px;}
+.qnb-mongosh::-webkit-scrollbar-thumb,.qnb-table-wrap::-webkit-scrollbar-thumb{background:rgba(128,128,128,0.3);border-radius:3px;}
+.qnb-mongosh::-webkit-scrollbar-thumb:hover,.qnb-table-wrap::-webkit-scrollbar-thumb:hover{background:rgba(128,128,128,0.5);}
+.qnb-mongosh .mongosh-key,.qnb-json .json-key{color:var(--qnb-key);}
+.qnb-mongosh .mongosh-str,.qnb-json .json-string{color:var(--qnb-str);}
+.qnb-mongosh .mongosh-num,.qnb-json .json-number{color:var(--qnb-num);}
+.qnb-mongosh .mongosh-bool,.qnb-json .json-boolean{color:var(--qnb-bool);}
+.qnb-mongosh .mongosh-null,.qnb-json .json-null{color:var(--qnb-null);font-style:italic;}
+.qnb-table-wrap{overflow:auto;max-height:var(--qnb-max-height,450px);margin:2px 0;background:transparent;}
+.qnb-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.45;font-family:inherit;background:transparent;}
+.qnb-table thead{position:sticky;top:0;}
+.qnb-table th{color:var(--qnb-key);font-weight:600;text-align:left;padding:4px 10px;border-bottom:1px solid var(--qnb-border);background:transparent;}
+.qnb-table td{padding:3px 10px;border-bottom:1px solid var(--qnb-border);color:var(--qnb-text);max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.qnb-table tr:hover td{background:var(--qnb-hover);}
+.qnb-td-idx,.qnb-th-idx{width:32px;color:var(--qnb-null);text-align:center;}
+</style>`;
+
+// ─── Table (SQL & Tabular Data) ─────────────────────────────────
+
+export function renderTable(rows: Record<string, any>[], fields: string[], elapsedMs: number, dbType: string, queryText?: string): string {
+    const config = getRendererConfig();
+    if (!fields?.length) {
+        if (rows.length) fields = Object.keys(rows[0]);
+        else return renderSuccess('0 rows returned.', elapsedMs, dbType);
+    }
+
+    // Save to DataContext for Polyglot Data Piping
+    DataContext.getInstance().setLastResult({ rows, fields, source: dbType });
+
+    const isMongo = dbType.toLowerCase().includes('mongo');
+    if (isMongo) {
+        return renderJson(rows, elapsedMs, dbType);
+    }
+
+    const previewRows = rows.slice(0, 500);
+    const headerCells = `<th class="qnb-th-idx">#</th>` + fields.map(f => `<th>${esc(String(f))}</th>`).join('');
+    const bodyRows = previewRows.map((row, i) =>
+        `<tr><td class="qnb-td-idx">${i + 1}</td>` + fields.map(f => `<td>${row ? fmtCell(row[f]) : '<span class="mongosh-null">null</span>'}</td>`).join('') + `</tr>`
+    ).join('\n');
 
     return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-error">
-        <div class="qnb-error-title">❌ Error ${badge}</div>
-        ${esc(message)}
-    </div>
+<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;--qnb-max-height:${config.maxHeight > 0 ? config.maxHeight + 'px' : 'none'};">
+    <div class="qnb-table-wrap"><table class="qnb-table"><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>
 </div>`;
 }
 
-// ─── Success ────────────────────────────────────────────────────
-
-export function renderSuccess(message: string, elapsedMs: number, source: string): string {
-    const { badgeClass, badgeIcon } = getBadge(source);
-
-    return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-success">
-        <div class="qnb-success-title">✅ Success</div>
-        ${esc(message)}
-    </div>
-    <div class="qnb-footer">
-        <div class="qnb-footer-left">
-            <span class="qnb-badge ${badgeClass}">${badgeIcon} ${source}</span>
-        </div>
-        <span class="qnb-time">⏱ ${elapsedMs}ms</span>
-    </div>
-</div>`;
-}
-
-// ─── Connection Required ────────────────────────────────────────
-
-export function renderConnectionRequired(dbType: string): string {
-    return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-connect">
-        <div class="qnb-connect-title">🔌 ${dbType} Connection Required</div>
-        No active ${dbType} connection. Open the Command Palette and run:<br>
-        <code>AnyINB: Configure Database Connection</code>
-    </div>
-</div>`;
-}
-
-// ─── JSON ───────────────────────────────────────────────────────
+// ─── JSON & MongoDB Document Output ─────────────────────────────
 
 export function renderJson(data: any, elapsedMs: number, source: string): string {
-    const highlighted = syntaxHighlightJson(JSON.stringify(data, null, 2));
-    const { badgeClass, badgeIcon } = getBadge(source);
-    const count = Array.isArray(data) ? `${data.length} document${data.length !== 1 ? 's' : ''}` : '1 document';
+    const config = getRendererConfig();
+    DataContext.getInstance().setLastResult({ rawJson: data, source });
 
     return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-json">${highlighted}</div>
-    <div class="qnb-footer">
-        <div class="qnb-footer-left">
-            <span class="qnb-badge ${badgeClass}">${badgeIcon} ${source}</span>
-            <span class="qnb-rows-count">${count}</span>
-        </div>
-        <span class="qnb-time">⏱ ${elapsedMs}ms</span>
-    </div>
+<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;--qnb-max-height:${config.maxHeight > 0 ? config.maxHeight + 'px' : 'none'};">
+    <div class="qnb-mongosh">${mongoshFormatValue(data, 0)}</div>
 </div>`;
 }
 
-// ─── Console Output (for programming languages) ─────────────────
+// ─── Success & Error Monospace Text ─────────────────────────────
 
-export function renderConsoleOutput(
-    stdout: string,
-    stderr: string,
-    exitCode: number,
-    elapsedMs: number,
-    langName: string,
-    langIcon: string
-): string {
-    let consoleHtml = '';
-
-    if (stdout) {
-        consoleHtml += `<div class="qnb-console">${esc(stdout)}</div>`;
-    }
-
-    if (stderr) {
-        consoleHtml += `<div class="qnb-console qnb-stderr">${esc(stderr)}</div>`;
-    }
-
-    if (!stdout && !stderr) {
-        consoleHtml = `<div class="qnb-console" style="color:#666;font-style:italic;">(no output)</div>`;
-    }
-
-    const exitBadge = exitCode === 0
-        ? '<span style="color:#7ee787;">✓ exit 0</span>'
-        : `<span style="color:#f48771;">✗ exit ${exitCode}</span>`;
-
-    return `${STYLES}
-<div class="qnb-output">
-    ${consoleHtml}
-    <div class="qnb-footer">
-        <div class="qnb-footer-left">
-            <span class="qnb-badge qnb-badge-generic">${langIcon} ${langName}</span>
-            ${exitBadge}
-        </div>
-        <span class="qnb-time">⏱ ${elapsedMs}ms</span>
-    </div>
-</div>`;
+export function renderSuccess(message: string, elapsedMs: number, source: string): string {
+    const config = getRendererConfig();
+    return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:var(--qnb-str);">${esc(message)}</div></div>`;
 }
 
-// ─── HTTP Response ──────────────────────────────────────────────
+export function renderError(message: string, source?: string): string {
+    const config = getRendererConfig();
+    return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:#f48771;">${esc(message)}</div></div>`;
+}
+
+export function renderConnectionRequired(dbType: string): string {
+    const cmd = `command:anyinb.quickConnect?${encodeURIComponent(JSON.stringify(dbType.toLowerCase()))}`;
+    return `${STYLES}<div class="qnb-output" style="color:#e5c07b;">${dbType} connection required. <a href="${cmd}" style="color:var(--qnb-str,#23d18b);text-decoration:underline;">⚡ Connect</a></div>`;
+}
 
 export function renderHttpResponse(result: HttpResult): string {
-    const statusClass =
-        result.status >= 500 ? 'qnb-http-5xx' :
-        result.status >= 400 ? 'qnb-http-4xx' :
-        result.status >= 300 ? 'qnb-http-3xx' :
-        'qnb-http-2xx';
-
-    // Try to format JSON body
-    let bodyHtml: string;
+    const config = getRendererConfig();
+    let body = result.body;
     try {
         const parsed = JSON.parse(result.body);
-        bodyHtml = `<div class="qnb-json">${syntaxHighlightJson(JSON.stringify(parsed, null, 2))}</div>`;
+        DataContext.getInstance().setLastResult({ rawJson: parsed, source: 'HTTP' });
+        body = mongoshFormatValue(parsed, 0);
     } catch {
-        bodyHtml = result.body
-            ? `<div class="qnb-console">${esc(result.body)}</div>`
-            : `<div class="qnb-console" style="color:#666;font-style:italic;">(empty body)</div>`;
+        DataContext.getInstance().setLastResult({ rawJson: result.body, source: 'HTTP' });
+        body = esc(result.body);
     }
-
-    // Headers
-    const headersHtml = Object.entries(result.headers)
-        .map(([k, v]) => `<span class="qnb-http-header-key">${esc(k)}</span>: <span class="qnb-http-header-val">${esc(v)}</span>`)
-        .join('\n');
-
-    return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-http-status ${statusClass}">
-        ${result.status} ${esc(result.statusText)}
-    </div>
-    <details class="qnb-http-headers">
-        <summary>Response Headers (${Object.keys(result.headers).length})</summary>
-        <pre>${headersHtml}</pre>
-    </details>
-    ${bodyHtml}
-    <div class="qnb-footer">
-        <div class="qnb-footer-left">
-            <span class="qnb-badge qnb-badge-generic">🌐 HTTP</span>
-        </div>
-        <span class="qnb-time">⏱ ${result.elapsed}ms</span>
-    </div>
-</div>`;
+    const stCol = result.status >= 400 ? '#f48771' : 'var(--qnb-str)';
+    return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div style="color:${stCol};font-weight:600;margin-bottom:2px;">${result.status} ${esc(result.statusText)}</div><div class="qnb-mongosh">${body}</div></div>`;
 }
 
-// ─── Runtime Not Found ──────────────────────────────────────────
+export function renderMockEndpointCreated(method: string, endpointUrl: string, elapsedMs: number): string {
+    const config = getRendererConfig();
+    return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:var(--qnb-str);">⚡ Mock API Active: <code>${method} ${endpointUrl}</code></div></div>`;
+}
 
 export function renderRuntimeNotFound(langName: string, langIcon: string, langId: string): string {
-    const installHints: Record<string, string> = {
-        python: 'Install from python.org or run: <code>winget install Python.Python.3</code>',
-        go: 'Install from go.dev or run: <code>winget install GoLang.Go</code>',
-        rust: 'Install from rustup.rs or run: <code>curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh</code>',
-        java: 'Install JDK from adoptium.net or run: <code>winget install EclipseAdoptium.Temurin.21.JDK</code>',
-        ruby: 'Install from ruby-lang.org',
-        php: 'Install from php.net',
-        c: 'Install GCC: <code>winget install GnuWin32.GCC</code> or install MinGW/MSYS2',
-        cpp: 'Install G++: <code>winget install GnuWin32.GCC</code> or install MinGW/MSYS2',
-        typescript: 'Install tsx: <code>npm install -g tsx</code>',
-        dart: 'Install from dart.dev',
-        kotlin: 'Install from kotlinlang.org',
-        swift: 'Install from swift.org',
-    };
-
-    const hint = installHints[langId] || `Make sure <code>${langId}</code> is installed and available in your PATH.`;
-
-    return `${STYLES}
-<div class="qnb-output">
-    <div class="qnb-runtime-missing">
-        <div class="qnb-runtime-missing-title">${langIcon} ${langName} Runtime Not Found</div>
-        ${hint}<br><br>
-        After installing, restart VS Code and try again.
-    </div>
-</div>`;
+    return `${STYLES}<div class="qnb-output" style="color:#e5c07b;">${langName} runtime not found. Make sure <code>${langId}</code> is installed and in your PATH.</div>`;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
+// ─── Formatters & Value Syntax Highlighting ─────────────────────
 
-function esc(str: string): string {
-    return str
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+function isObjectId(v: any): boolean {
+    if (!v) return false;
+    if (typeof v === 'string' && /^[a-f0-9]{24}$/i.test(v)) return true;
+    if (typeof v.toHexString === 'function') return true;
+    if (v._bsontype && String(v._bsontype).toLowerCase() === 'objectid') return true;
+    if (v.buffer && typeof v.buffer === 'object' && Object.keys(v.buffer).length === 12) return true;
+    if (v.id && (Buffer.isBuffer(v.id) || (typeof v.id === 'object' && Object.keys(v.id).length === 12))) return true;
+    return false;
+}
+
+function getObjectIdString(v: any): string {
+    if (!v) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v.toHexString === 'function') return v.toHexString();
+    const buf = v.id || v.buffer;
+    if (buf) {
+        if (Buffer.isBuffer(buf) || buf instanceof Uint8Array) return Buffer.from(buf).toString('hex');
+        if (typeof buf === 'object') return Buffer.from(Object.values(buf).map((b: any) => Number(b))).toString('hex');
+    }
+    return String(v);
+}
+
+function mongoshFormatValue(val: any, indent = 0, parentKey?: string): string {
+    const pad = '  '.repeat(indent), padInner = '  '.repeat(indent + 1);
+    if (val === null || val === undefined) return `<span class="mongosh-null">null</span>`;
+    if (typeof val === 'boolean') return `<span class="mongosh-bool">${val}</span>`;
+    if (typeof val === 'number' || typeof val === 'bigint') return `<span class="mongosh-num">${val}</span>`;
+    if (isObjectId(val) || (parentKey === '_id' && typeof val === 'string' && /^[a-f0-9]{24}$/i.test(val))) {
+        return `ObjectId('<span class="mongosh-str">${esc(getObjectIdString(val))}</span>')`;
+    }
+    if (val._bsontype === 'Decimal128' || val._bsontype === 'Long') return `${val._bsontype}('<span class="mongosh-str">${esc(val.toString())}</span>')`;
+    if (val._bsontype === 'Int32') return `NumberInt(<span class="mongosh-num">${val.value ?? val}</span>)`;
+    if (val._bsontype === 'Timestamp') return `Timestamp({ t: ${val.t ?? 0}, i: ${val.i ?? 0} })`;
+    if (val._bsontype === 'Binary' || Buffer.isBuffer(val) || val.sub_type !== undefined) {
+        if (val.sub_type === 4 && (val.buffer || val.id)) return `UUID('<span class="mongosh-str">${esc(getObjectIdString(val.buffer || val.id))}</span>')`;
+        return `Binary.createFromBase64('<span class="mongosh-str">${esc(val.toString ? val.toString('base64') : '')}</span>')`;
+    }
+    if (val instanceof Date) return `ISODate('<span class="mongosh-str">${esc(val.toISOString())}</span>')`;
+    if (typeof val === 'string') {
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/i.test(val)) return `ISODate('<span class="mongosh-str">${esc(val)}</span>')`;
+        return `<span class="mongosh-str">'${esc(val)}'</span>`;
+    }
+    if (Array.isArray(val)) {
+        if (!val.length) return `[]`;
+        return `[\n${val.map(v => `${padInner}${mongoshFormatValue(v, indent + 1)}`).join(',\n')}\n${pad}]`;
+    }
+    if (typeof val === 'object') {
+        const keys = Object.keys(val);
+        if (!keys.length) return `{}`;
+        const entries = keys.map(k => {
+            const keyDisplay = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k) ? esc(k) : `'${esc(k)}'`;
+            return `${padInner}<span class="mongosh-key">${keyDisplay}</span>: ${mongoshFormatValue(val[k], indent + 1, k)}`;
+        }).join(',\n');
+        return `{\n${entries}\n${pad}}`;
+    }
+    return esc(String(val));
+}
+
+function esc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 function fmtCell(val: any): string {
-    if (val === null || val === undefined) {
-        return '<span class="qnb-null">NULL</span>';
-    }
-    if (typeof val === 'number' || typeof val === 'bigint') {
-        return `<span class="qnb-number">${val}</span>`;
-    }
-    if (typeof val === 'boolean') {
-        return `<span class="qnb-boolean">${val}</span>`;
-    }
+    if (val === null || val === undefined) return '<span class="mongosh-null">null</span>';
+    if (isObjectId(val)) return `<span class="mongosh-str">${esc(getObjectIdString(val))}</span>`;
+    if (typeof val === 'number' || typeof val === 'bigint') return `<span class="mongosh-num">${val}</span>`;
+    if (typeof val === 'boolean') return `<span class="mongosh-bool">${val}</span>`;
     if (typeof val === 'object') {
-        if (val instanceof Date) { return `<span class="qnb-string">${val.toISOString()}</span>`; }
-        if (Buffer.isBuffer(val)) { return `<span class="qnb-string">[Buffer ${val.length} bytes]</span>`; }
+        if (val instanceof Date) return `<span class="mongosh-str">${val.toISOString()}</span>`;
         const json = JSON.stringify(val);
-        const t = json.length > 100 ? json.substring(0, 100) + '…' : json;
-        return `<span class="qnb-object" title="${esc(json)}">${esc(t)}</span>`;
+        return `<span>${esc(json.length > 80 ? json.substring(0, 80) + '…' : json)}</span>`;
     }
     const str = String(val);
-    return str.length > 200 ? `<span class="qnb-string">${esc(str.substring(0, 200))}…</span>` : esc(str);
-}
-
-function getBadge(source: string): { badgeClass: string; badgeIcon: string } {
-    const map: Record<string, { badgeClass: string; badgeIcon: string }> = {
-        'MySQL': { badgeClass: 'qnb-badge-mysql', badgeIcon: '🐬' },
-        'MongoDB': { badgeClass: 'qnb-badge-mongodb', badgeIcon: '🍃' },
-    };
-    return map[source] || { badgeClass: 'qnb-badge-generic', badgeIcon: '▶️' };
-}
-
-function syntaxHighlightJson(json: string): string {
-    return esc(json).replace(
-        /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-        (match) => {
-            let cls = 'json-number';
-            if (/^"/.test(match)) {
-                cls = /:$/.test(match) ? 'json-key' : 'json-string';
-            } else if (/true|false/.test(match)) {
-                cls = 'json-boolean';
-            } else if (/null/.test(match)) {
-                cls = 'json-null';
-            }
-            return `<span class="${cls}">${match}</span>`;
-        }
-    );
+    return str.length > 150 ? `<span>${esc(str.substring(0, 150))}…</span>` : esc(str);
 }

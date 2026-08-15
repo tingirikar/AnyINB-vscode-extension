@@ -41,7 +41,7 @@ export class RedisExecutor {
 
     async execute(query: string): Promise<RedisResult> {
         if (!this.redis) {
-            return { error: 'Not connected to Redis. Run "Query Notebook: Configure Database Connection" first.' };
+            return { error: 'Not connected to Redis. Run "AnyINB: Configure Database Connection" first.' };
         }
 
         try {
@@ -107,15 +107,21 @@ export class RedisExecutor {
     }
 
     /**
-     * Basic parser to split arguments, handling quotes.
-     * e.g. SET "my key" "my value" -> ['SET', 'my key', 'my value']
+     * Basic parser to split arguments, handling double and single quotes.
+     * e.g. SET "my key" 'my value' -> ['SET', 'my key', 'my value']
      */
     private _parseCommand(line: string): string[] {
-        const regex = /[^\s"]+|"([^"]*)"/g;
+        const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
         const result: string[] = [];
         let match;
         while ((match = regex.exec(line)) !== null) {
-            result.push(match[1] ? match[1] : match[0]);
+            if (match[1] !== undefined) {
+                result.push(match[1]);
+            } else if (match[2] !== undefined) {
+                result.push(match[2]);
+            } else {
+                result.push(match[0]);
+            }
         }
         return result;
     }

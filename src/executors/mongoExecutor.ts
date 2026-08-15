@@ -50,7 +50,7 @@ export class MongoExecutor {
 
     async execute(code: string): Promise<MongoResult> {
         if (!this.db || !this.client) {
-            return { error: 'Not connected to MongoDB. Run "Query Notebook: Configure Database Connection" first.' };
+            return { error: 'Not connected to MongoDB. Run "AnyINB: Configure Database Connection" first.' };
         }
 
         try {
@@ -67,24 +67,38 @@ export class MongoExecutor {
 
             // Translate shell commands (show dbs, show collections, etc.) to JS
             const translatedCode = this._translateShellCommands(code);
+            const dbProxy = this._createDbProxy(this.db);
 
             // Create a function that receives `db`, `client`, and BSON types
             const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
 
-            const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', `
-                // The user's code — last expression is returned
-                return (async () => {
-                    ${this._wrapReturnStatement(translatedCode)}
-                })();
-            `);
+            let result: any;
+            if (/\breturn\b/.test(translatedCode)) {
+                const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', translatedCode);
+                result = await fn(
+                    dbProxy, this.client,
+                    BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
+                    BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
+                );
+            } else {
+                try {
+                    const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', `return (${translatedCode});`);
+                    result = await fn(
+                        dbProxy, this.client,
+                        BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
+                        BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
+                    );
+                } catch {
+                    const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', translatedCode);
+                    result = await fn(
+                        dbProxy, this.client,
+                        BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
+                        BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
+                    );
+                }
+            }
 
-            const result = await fn(
-                this.db, this.client,
-                BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
-                BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
-            );
-
-            // Handle cursor-like results (though most should be resolved by toArray())
+            // Handle cursor-like results (FindCursor, AggregationCursor, etc.)
             if (result && typeof result.toArray === 'function') {
                 const arr = await result.toArray();
                 return { data: arr };
@@ -96,6 +110,26 @@ export class MongoExecutor {
                 error: `${err.name || 'MongoError'}: ${err.message}`
             };
         }
+    }
+
+    /**
+     * Wrap Db in a Proxy so `db.<collectionName>` shorthand works anywhere in code (e.g. db.users.find()).
+     */
+    private _createDbProxy(db: Db): any {
+        return new Proxy(db, {
+            get(target: any, prop: string | symbol) {
+                if (typeof prop === 'string') {
+                    if (prop in target || typeof target[prop] === 'function') {
+                        const val = target[prop];
+                        return typeof val === 'function' ? val.bind(target) : val;
+                    }
+                    if (prop !== 'then' && !prop.startsWith('_') && !prop.startsWith('$')) {
+                        return target.collection(prop);
+                    }
+                }
+                return target[prop];
+            }
+        });
     }
 
     /**
@@ -112,103 +146,38 @@ export class MongoExecutor {
             return `
                 const adminDb = client.db().admin();
                 const result = await adminDb.listDatabases();
-                result.databases.map(d => ({ name: d.name, sizeOnDisk: d.sizeOnDisk, empty: d.empty }));
+                const formatBytes = (bytes) => {
+                    if (!bytes) return '0.00 B';
+                    const units = ['B', 'KiB', 'MiB', 'GiB'];
+                    let i = 0;
+                    let val = bytes;
+                    while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+                    return val.toFixed(2) + ' ' + units[i];
+                };
+                return result.databases.map(d => (d.name || '').padEnd(12) + ' ' + formatBytes(d.sizeOnDisk)).join('\\n');
             `;
         }
 
         // show collections / show tables
         if (lower === 'show collections' || lower === 'show tables') {
-            return 'db.listCollections().toArray()';
+            return `
+                const collections = await db.listCollections().toArray();
+                const names = collections.map(c => c.name).sort();
+                return names.length ? names.join('\\n') : '(empty)';
+            `;
         }
 
         // show users
         if (lower === 'show users') {
-            return `db.command({ usersInfo: 1 })`;
+            return `return await db.command({ usersInfo: 1 });`;
         }
 
         // db.stats()
         if (lower === 'db.stats()' || lower === 'db.stats') {
-            return `db.stats()`;
-        }
-
-        // Note: `use <database>` is handled directly in execute() above
-
-        // db.<collectionName>.<method>() shorthand (like mongosh)
-        // e.g., db.users.find({}) → db.collection("users").find({})
-        const shellMethodMatch = trimmed.match(/^db\.(\w+)\.(find|findOne|insertOne|insertMany|updateOne|updateMany|deleteOne|deleteMany|aggregate|countDocuments|count|distinct|drop|createIndex|getIndexes|stats)\s*\(/);
-        if (shellMethodMatch) {
-            const collectionName = shellMethodMatch[1];
-            // Don't translate if it's already using .collection()
-            if (collectionName !== 'collection') {
-                return trimmed.replace(
-                    `db.${collectionName}.`,
-                    `db.collection("${collectionName}").`
-                );
-            }
-        }
-
-        // db.<collectionName>.find() without parens at end — just listing
-        const shellSimpleMatch = trimmed.match(/^db\.(\w+)\.(find|findOne|countDocuments|count|stats|drop|getIndexes)\s*$/);
-        if (shellSimpleMatch) {
-            const collectionName = shellSimpleMatch[1];
-            if (collectionName !== 'collection') {
-                const method = shellSimpleMatch[2];
-                if (method === 'find') {
-                    return `db.collection("${collectionName}").find({}).toArray()`;
-                }
-                return `db.collection("${collectionName}").${method}()`;
-            }
+            return `return await db.stats();`;
         }
 
         return trimmed;
-    }
-
-    /**
-     * Wraps the user's code so the last expression is returned.
-     * If the code already has a return statement, leave it alone.
-     * Otherwise, add `return` before the last expression.
-     */
-    private _wrapReturnStatement(code: string): string {
-        const trimmed = code.trim();
-
-        // If the user already has return statements, use as-is
-        if (/\breturn\b/.test(trimmed)) {
-            return trimmed;
-        }
-
-        // Find the last statement (split by semicolons, ignoring those in strings)
-        // Simple approach: add return before the last line that looks like an expression
-        const lines = trimmed.split('\n');
-        const lastNonEmptyIndex = this._findLastNonEmptyLine(lines);
-
-        if (lastNonEmptyIndex >= 0) {
-            const lastLine = lines[lastNonEmptyIndex].trim();
-
-            // Don't add return before declarations, loops, or conditionals
-            if (
-                !lastLine.startsWith('const ') &&
-                !lastLine.startsWith('let ') &&
-                !lastLine.startsWith('var ') &&
-                !lastLine.startsWith('for ') &&
-                !lastLine.startsWith('while ') &&
-                !lastLine.startsWith('if ') &&
-                !lastLine.startsWith('//') &&
-                !lastLine.startsWith('/*')
-            ) {
-                lines[lastNonEmptyIndex] = 'return ' + lines[lastNonEmptyIndex];
-            }
-        }
-
-        return lines.join('\n');
-    }
-
-    private _findLastNonEmptyLine(lines: string[]): number {
-        for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].trim().length > 0) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     async disconnect(): Promise<void> {

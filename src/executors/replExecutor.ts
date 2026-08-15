@@ -42,52 +42,75 @@ export class ReplExecutor {
             let isDone = false;
             let timeout: NodeJS.Timeout;
 
+            const cleanup = () => {
+                // Remove per-execution listeners to prevent accumulation
+                proc.stdout?.removeListener('data', onStdout);
+                proc.stderr?.removeListener('data', onStderr);
+            };
+
+            const finish = (result: ReplResult) => {
+                if (isDone) { return; }
+                isDone = true;
+                clearTimeout(timeout);
+                cancelListener?.dispose();
+                cleanup();
+                resolve(result);
+            };
+
             const cancelListener = token?.onCancellationRequested(() => {
-                if (!isDone) {
-                    isDone = true;
-                    clearTimeout(timeout);
-                    this._killRepl(processKey);
-                    resolve({ 
-                        stdout: this.buffers.get(processKey)!.out, 
-                        stderr: this.buffers.get(processKey)!.err + '\n\n[Execution Cancelled]', 
-                    });
-                }
+                this._killRepl(processKey);
+                finish({ 
+                    stdout: this.buffers.get(processKey)!.out, 
+                    stderr: this.buffers.get(processKey)!.err + '\n\n[Execution Cancelled]', 
+                });
             });
 
             timeout = setTimeout(() => {
-                if (!isDone) {
-                    isDone = true;
-                    cancelListener?.dispose();
-                    this._killRepl(processKey);
-                    resolve({ 
-                        stdout: this.buffers.get(processKey)!.out, 
-                        stderr: this.buffers.get(processKey)!.err + `\n\n[Execution Timed Out after ${timeoutMs}ms]`, 
-                    });
-                }
+                this._killRepl(processKey);
+                finish({ 
+                    stdout: this.buffers.get(processKey)!.out, 
+                    stderr: this.buffers.get(processKey)!.err + `\n\n[Execution Timed Out after ${timeoutMs}ms]`, 
+                });
             }, timeoutMs);
 
             const checkOutput = () => {
-                if (isDone) return;
+                if (isDone) { return; }
                 const buf = this.buffers.get(processKey)!;
                 if (buf.out.includes(this.END_MARKER)) {
-                    isDone = true;
-                    clearTimeout(timeout);
-                    cancelListener?.dispose();
-                    resolve({
-                        stdout: buf.out.replace(this.END_MARKER + '\n', '').replace(this.END_MARKER, ''),
-                        stderr: buf.err
-                    });
+                    let stdout = buf.out
+                        .replace(this.END_MARKER + '\n', '')
+                        .replace(this.END_MARKER, '');
+
+                    // Strip Node REPL prompt artifacts (> , ... , undefined lines)
+                    if (language === 'javascript') {
+                        stdout = this._cleanNodeReplOutput(stdout);
+                    }
+
+                    let stderr = buf.err;
+
+                    // Clean Python REPL prompts
+                    if (language === 'python') {
+                        stdout = this._cleanPythonOutput(stdout);
+                        stderr = this._cleanPythonStderr(stderr);
+                    }
+
+                    // Also strip END_MARKER from stderr if it leaked there
+                    stderr = stderr
+                        .replace(this.END_MARKER + '\n', '')
+                        .replace(this.END_MARKER, '');
+
+                    finish({ stdout, stderr });
                 }
             };
 
             // Setup listeners specifically for this execution block
             const onStdout = (data: Buffer) => {
-                if (isDone) return;
+                if (isDone) { return; }
                 this.buffers.get(processKey)!.out += data.toString('utf8');
                 checkOutput();
             };
             const onStderr = (data: Buffer) => {
-                if (isDone) return;
+                if (isDone) { return; }
                 this.buffers.get(processKey)!.err += data.toString('utf8');
             };
 
@@ -95,40 +118,155 @@ export class ReplExecutor {
             proc.stderr?.on('data', onStderr);
 
             proc.once('close', () => {
-                if (!isDone) {
-                    isDone = true;
-                    clearTimeout(timeout);
-                    cancelListener?.dispose();
-                    this.processes.delete(processKey);
-                    resolve({
-                        stdout: this.buffers.get(processKey)!.out,
-                        stderr: this.buffers.get(processKey)!.err + '\n[Process Exited Unexpectedly]'
-                    });
-                }
+                this.processes.delete(processKey);
+                finish({
+                    stdout: this.buffers.get(processKey)?.out || '',
+                    stderr: (this.buffers.get(processKey)?.err || '') + '\n[Process Exited Unexpectedly]'
+                });
             });
 
             // Send code
             try {
                 let wrappedCode = '';
                 if (language === 'python') {
-                    // In Python REPL wrapper, we read until END_MARKER, so we just send the code 
-                    // and then a special delimiter. Wait, it's easier if we just write the python code 
-                    // and then tell it to execute.
-                    wrappedCode = code + `\nprint('${this.END_MARKER}')\n`;
+                    const autoPlot = vscode.workspace.getConfiguration('anyinb').get<boolean>('pythonAutoPlot', true);
+                    const plotPrelude = `
+try:
+    import os as _anyinb_os
+    _anyinb_os.environ['MPLBACKEND'] = 'Agg'
+    import sys as _anyinb_sys
+    if 'matplotlib' in _anyinb_sys.modules:
+        import matplotlib as _anyinb_mpl
+        _anyinb_mpl.use('Agg', force=True)
+    if 'matplotlib.pyplot' in _anyinb_sys.modules:
+        import matplotlib.pyplot as _anyinb_plt
+        _anyinb_plt.show = lambda *a, **k: None
+except Exception:
+    pass
+`;
+                    const plotCapture = autoPlot ? `
+try:
+    import sys as _anyinb_sys
+    if 'matplotlib.pyplot' in _anyinb_sys.modules or 'matplotlib' in _anyinb_sys.modules:
+        import matplotlib.pyplot as _anyinb_plt
+        import io as _anyinb_io, base64 as _anyinb_b64
+        _anyinb_figs = _anyinb_plt.get_fignums()
+        if _anyinb_figs:
+            for _anyinb_f in _anyinb_figs:
+                _anyinb_buf = _anyinb_io.BytesIO()
+                _anyinb_fig = _anyinb_plt.figure(_anyinb_f)
+                _anyinb_fig.savefig(_anyinb_buf, format='png', bbox_inches='tight', dpi=140)
+                _anyinb_buf.seek(0)
+                _anyinb_b64 = _anyinb_b64.b64encode(_anyinb_buf.read()).decode('utf-8')
+                print(f"___ANYINB_IMAGE_START___{_anyinb_b64}___ANYINB_IMAGE_END___")
+            _anyinb_plt.close('all')
+except Exception:
+    pass
+` : '';
+                    wrappedCode = plotPrelude + '\n' + code + '\n' + plotCapture + `\nprint('${this.END_MARKER}')\n`;
                 } else if (language === 'javascript') {
-                    wrappedCode = code + `\nconsole.log('${this.END_MARKER}');\n`;
+                    // Convert top-level const/let to var so declarations can be
+                    // re-run without "already declared" errors, while still keeping
+                    // variables in the global REPL scope (accessible across cells).
+                    // This is the same approach Chrome DevTools uses.
+                    const safeCode = this._convertConstLetToVar(code);
+                    wrappedCode = safeCode + `\nconsole.log('${this.END_MARKER}');\n`;
                 } else {
                     wrappedCode = code + `\necho '${this.END_MARKER}'\n`;
                 }
                 
                 proc.stdin?.write(wrappedCode);
             } catch (err) {
-                isDone = true;
-                clearTimeout(timeout);
-                cancelListener?.dispose();
-                resolve({ stdout: '', stderr: '', error: 'Failed to write to REPL' });
+                finish({ stdout: '', stderr: '', error: 'Failed to write to REPL' });
             }
         });
+    }
+
+    /**
+     * Clean up Node.js REPL prompt artifacts from stdout.
+     * The interactive REPL prefixes lines with "> ", "... ", and prints
+     * "undefined" for expression-statements.  Strip all of that.
+     */
+    private _cleanNodeReplOutput(raw: string): string {
+        const lines = raw.split('\n');
+        const cleaned: string[] = [];
+        for (const line of lines) {
+            // Skip bare REPL prompt lines
+            if (/^>\s*$/.test(line) || /^\.\.\.\s*$/.test(line)) {
+                continue;
+            }
+            // Skip standalone "undefined" that the REPL prints for void expressions
+            if (line.trim() === 'undefined') {
+                continue;
+            }
+            // Strip leading "> " or "... " prompt prefixes
+            let stripped = line;
+            stripped = stripped.replace(/^>\s?/, '');
+            stripped = stripped.replace(/^\.\.\.\s?/, '');
+            cleaned.push(stripped);
+        }
+        // Trim trailing empty lines
+        while (cleaned.length > 0 && cleaned[cleaned.length - 1].trim() === '') {
+            cleaned.pop();
+        }
+        return cleaned.join('\n');
+    }
+
+    private _cleanPythonOutput(raw: string): string {
+        const lines = raw.split('\n');
+        const cleaned: string[] = [];
+        for (const line of lines) {
+            if (/^(>>>|\.\.\.)\s*$/.test(line.trim())) continue;
+            cleaned.push(line.replace(/^(>>>|\.\.\.)\s*/, ''));
+        }
+        while (cleaned.length > 0 && cleaned[cleaned.length - 1].trim() === '') {
+            cleaned.pop();
+        }
+        return cleaned.join('\n');
+    }
+
+    private _cleanPythonStderr(raw: string): string {
+        const lines = raw.split('\n');
+        const cleaned: string[] = [];
+        for (const line of lines) {
+            const stripped = line.replace(/^(>>>|\.\.\.)\s*/g, '').replace(/\b(>>>|\.\.\.)\b/g, '').trim();
+            if (stripped.length > 0 && !/^[\s>\.]{2,}$/.test(stripped)) {
+                cleaned.push(line.replace(/^(>>>|\.\.\.)\s*/, ''));
+            }
+        }
+        return cleaned.join('\n').trim();
+    }
+
+    /**
+     * Convert top-level `const` and `let` declarations to `var`.
+     * Only transforms declarations at brace-depth 0 (top-level),
+     * preserving const/let inside functions, classes, loops, etc.
+     * This lets the Node REPL re-declare variables without errors,
+     * mirroring what Chrome DevTools does.
+     */
+    private _convertConstLetToVar(code: string): string {
+        const lines = code.split('\n');
+        let braceDepth = 0;
+        const result: string[] = [];
+
+        for (const line of lines) {
+            let transformed = line;
+
+            if (braceDepth === 0) {
+                // Only transform at top level — replace leading const/let with var
+                transformed = transformed.replace(/^(\s*)(const|let)\s/, '$1var ');
+            }
+
+            // Track brace depth (simple heuristic — good enough for REPL code)
+            for (const ch of line) {
+                if (ch === '{') { braceDepth++; }
+                else if (ch === '}') { braceDepth = Math.max(0, braceDepth - 1); }
+            }
+
+            result.push(transformed);
+        }
+
+        return result.join('\n');
     }
 
     private async _startRepl(processKey: string, language: string, useDocker: boolean): Promise<boolean> {
@@ -160,6 +298,10 @@ export class ReplExecutor {
                 return false;
             }
 
+            if (language === 'python') {
+                proc.stdin?.write("import sys, os; sys.ps1 = ''; sys.ps2 = ''; os.environ['MPLBACKEND'] = 'Agg'\n");
+            }
+
             this.processes.set(processKey, proc);
             return true;
         } catch {
@@ -182,3 +324,4 @@ export class ReplExecutor {
         this.processes.clear();
     }
 }
+

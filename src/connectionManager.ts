@@ -6,402 +6,161 @@ import { SqliteExecutor, SqliteConfig } from './executors/sqliteExecutor';
 import { RedisExecutor, RedisConfig } from './executors/redisExecutor';
 
 /**
- * Manages database connections for MySQL and MongoDB.
- * Stores connection configs in VS Code's globalState (persistent)
- * and passwords in SecretStorage (secure).
+ * Manages database connections for MySQL, MongoDB, PostgreSQL, SQLite, and Redis.
  */
 export class ConnectionManager {
     private static instance: ConnectionManager;
 
-    private mysqlExecutor: MySqlExecutor;
-    private mongoExecutor: MongoExecutor;
-    private postgresExecutor: PostgresExecutor;
-    private sqliteExecutor: SqliteExecutor;
-    private redisExecutor: RedisExecutor;
-    private context: vscode.ExtensionContext;
+    private mysqlExecutor = new MySqlExecutor();
+    private mongoExecutor = new MongoExecutor();
+    private postgresExecutor = new PostgresExecutor();
+    private sqliteExecutor = new SqliteExecutor();
+    private redisExecutor = new RedisExecutor();
 
-    private constructor(context: vscode.ExtensionContext) {
-        this.context = context;
-        this.mysqlExecutor = new MySqlExecutor();
-        this.mongoExecutor = new MongoExecutor();
-        this.postgresExecutor = new PostgresExecutor();
-        this.sqliteExecutor = new SqliteExecutor();
-        this.redisExecutor = new RedisExecutor();
-    }
+    private constructor(private context: vscode.ExtensionContext) {}
 
     static getInstance(context: vscode.ExtensionContext): ConnectionManager {
-        if (!ConnectionManager.instance) {
-            ConnectionManager.instance = new ConnectionManager(context);
-        }
-        return ConnectionManager.instance;
+        return (ConnectionManager.instance ??= new ConnectionManager(context));
     }
 
-    getMySqlExecutor(): MySqlExecutor {
-        return this.mysqlExecutor;
-    }
+    getMySqlExecutor(): MySqlExecutor { return this.mysqlExecutor; }
+    getMongoExecutor(): MongoExecutor { return this.mongoExecutor; }
+    getPostgresExecutor(): PostgresExecutor { return this.postgresExecutor; }
+    getSqliteExecutor(): SqliteExecutor { return this.sqliteExecutor; }
+    getRedisExecutor(): RedisExecutor { return this.redisExecutor; }
 
-    getMongoExecutor(): MongoExecutor {
-        return this.mongoExecutor;
-    }
+    getMySqlStatus(): string { return this.mysqlExecutor.isConnected() ? 'MySQL: Connected' : ''; }
+    getMongoStatus(): string { return this.mongoExecutor.isConnected() ? `MongoDB: ${this.mongoExecutor.getConfig()?.database || 'Connected'}` : ''; }
+    getPostgresStatus(): string { return this.postgresExecutor.isConnected() ? 'PostgreSQL: Connected' : ''; }
+    getSqliteStatus(): string { return this.sqliteExecutor.isConnected() ? 'SQLite: Connected' : ''; }
+    getRedisStatus(): string { return this.redisExecutor.isConnected() ? 'Redis: Connected' : ''; }
 
-    getPostgresExecutor(): PostgresExecutor {
-        return this.postgresExecutor;
-    }
-
-    getSqliteExecutor(): SqliteExecutor {
-        return this.sqliteExecutor;
-    }
-
-    getRedisExecutor(): RedisExecutor {
-        return this.redisExecutor;
-    }
-
-    /**
-     * Interactive connection configuration via VS Code UI.
-     */
     async configureConnection(): Promise<void> {
-        const dbType = await vscode.window.showQuickPick(
-            [
-                { label: '🐬  MySQL', description: 'Connect to a MySQL database', value: 'mysql' },
-                { label: '🍃  MongoDB', description: 'Connect to a MongoDB database', value: 'mongodb' },
-                { label: '🐘  PostgreSQL', description: 'Connect to a PostgreSQL database', value: 'postgres' },
-                { label: '🪶  SQLite', description: 'Connect to a SQLite database', value: 'sqlite' },
-                { label: '🟥  Redis', description: 'Connect to a Redis server', value: 'redis' },
-            ],
-            {
-                title: 'AnyINB — Select Database Type',
-                placeHolder: 'Which database do you want to connect to?'
-            }
-        );
+        const pick = await vscode.window.showQuickPick([
+            { label: '🐬 MySQL', value: 'mysql' },
+            { label: '🍃 MongoDB', value: 'mongodb' },
+            { label: '🐘 PostgreSQL', value: 'postgres' },
+            { label: '🪶 SQLite', value: 'sqlite' },
+            { label: '🟥 Redis', value: 'redis' },
+        ], { title: 'AnyINB — Select Database Type', placeHolder: 'Choose database type to connect' });
 
-        if (!dbType) {
-            return;
-        }
+        if (pick) { await this.quickConnect(pick.value); }
+    }
 
-        if (dbType.value === 'mysql') {
-            await this.configureMySql();
-        } else if (dbType.value === 'mongodb') {
-            await this.configureMongo();
-        } else if (dbType.value === 'postgres') {
-            await this.configurePostgres();
-        } else if (dbType.value === 'sqlite') {
-            await this.configureSqlite();
-        } else if (dbType.value === 'redis') {
-            await this.configureRedis();
+    async quickConnect(dbType: string): Promise<boolean> {
+        switch (dbType.toLowerCase()) {
+            case 'mysql': return this._connectMySql();
+            case 'mongodb': return this._connectMongo();
+            case 'postgres': return this._connectPostgres();
+            case 'sqlite': return this._connectSqlite();
+            case 'redis': return this._connectRedis();
+            default:
+                vscode.window.showErrorMessage(`Unknown database type: ${dbType}`);
+                return false;
         }
     }
 
-    private async configureMySql(): Promise<void> {
-        // Load saved config
-        const saved = this.context.globalState.get<Partial<MySqlConfig>>('mysql.config', {});
+    private async _prompt(title: string, prompt: string, value: string = '', password = false): Promise<string | undefined> {
+        return vscode.window.showInputBox({ title, prompt, value, password, ignoreFocusOut: true });
+    }
 
-        const host = await vscode.window.showInputBox({
-            title: 'MySQL — Host',
-            prompt: 'Enter MySQL server host',
-            value: saved.host || 'localhost',
-            ignoreFocusOut: true
-        });
-        if (!host) { return; }
-
-        const portStr = await vscode.window.showInputBox({
-            title: 'MySQL — Port',
-            prompt: 'Enter MySQL server port',
-            value: String(saved.port || 3306),
-            ignoreFocusOut: true,
-            validateInput: v => isNaN(Number(v)) ? 'Must be a number' : undefined
-        });
-        if (!portStr) { return; }
-
-        const user = await vscode.window.showInputBox({
-            title: 'MySQL — Username',
-            prompt: 'Enter MySQL username',
-            value: saved.user || 'root',
-            ignoreFocusOut: true
-        });
-        if (!user) { return; }
-
-        const password = await vscode.window.showInputBox({
-            title: 'MySQL — Password',
-            prompt: 'Enter MySQL password (leave empty if none)',
-            password: true,
-            ignoreFocusOut: true
-        });
-        if (password === undefined) { return; }
-
-        const database = await vscode.window.showInputBox({
-            title: 'MySQL — Database',
-            prompt: 'Enter database name',
-            value: saved.database || '',
-            ignoreFocusOut: true
-        });
-        if (!database) { return; }
-
-        const config: MySqlConfig = {
-            host,
-            port: Number(portStr),
-            user,
-            password,
-            database
-        };
-
-        // Try connecting
+    private async _runConnect(title: string, successMsg: string, connectFn: () => Promise<void>): Promise<boolean> {
         try {
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '🐬 Connecting to MySQL...' },
-                async () => {
-                    await this.mysqlExecutor.connect(config);
-                }
-            );
-
-            // Save config (without password)
-            await this.context.globalState.update('mysql.config', {
-                host: config.host,
-                port: config.port,
-                user: config.user,
-                database: config.database
-            });
-
-            // Save password securely
-            await this.context.secrets.store('mysql.password', config.password);
-
-            vscode.window.showInformationMessage(
-                `🐬 Connected to MySQL: ${config.host}:${config.port}/${config.database}`
-            );
+            await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, connectFn);
+            vscode.window.showInformationMessage(successMsg);
+            return true;
         } catch (err: any) {
-            vscode.window.showErrorMessage(
-                `Failed to connect to MySQL: ${err.message}`
-            );
+            vscode.window.showErrorMessage(`Connection failed: ${err.message}`);
+            return false;
         }
     }
 
-    private async configureMongo(): Promise<void> {
+    private async _connectMySql(): Promise<boolean> {
+        const saved = this.context.globalState.get<Partial<MySqlConfig>>('mysql.config', {});
+        const host = await this._prompt('MySQL — Host', 'Enter host', saved.host || 'localhost');
+        if (!host) return false;
+        const portStr = await this._prompt('MySQL — Port', 'Enter port', String(saved.port || 3306));
+        if (!portStr) return false;
+        const user = await this._prompt('MySQL — Username', 'Enter username', saved.user || 'root');
+        if (!user) return false;
+        const password = await this._prompt('MySQL — Password', 'Enter password', '', true);
+        if (password === undefined) return false;
+        const database = await this._prompt('MySQL — Database', 'Enter database name', saved.database || '');
+        if (!database) return false;
+
+        const config: MySqlConfig = { host, port: Number(portStr), user, password, database };
+        return this._runConnect('🐬 Connecting to MySQL...', `🐬 Connected to MySQL: ${host}:${portStr}/${database}`, async () => {
+            await this.mysqlExecutor.connect(config);
+            await this.context.globalState.update('mysql.config', { host, port: config.port, user, database });
+            await this.context.secrets.store('mysql.password', password);
+        });
+    }
+
+    private async _connectMongo(): Promise<boolean> {
         const saved = this.context.globalState.get<Partial<MongoConfig>>('mongo.config', {});
-
-        const connectionString = await vscode.window.showInputBox({
-            title: 'MongoDB — Connection String',
-            prompt: 'Enter MongoDB connection string',
-            value: saved.connectionString || 'mongodb://localhost:27017',
-            ignoreFocusOut: true,
-            placeHolder: 'mongodb://localhost:27017 or mongodb+srv://...'
-        });
-        if (!connectionString) { return; }
-
-        const database = await vscode.window.showInputBox({
-            title: 'MongoDB — Database',
-            prompt: 'Enter database name',
-            value: saved.database || 'test',
-            ignoreFocusOut: true
-        });
-        if (!database) { return; }
+        const connectionString = await this._prompt('MongoDB — URI', 'Enter connection string', saved.connectionString || 'mongodb://localhost:27017');
+        if (!connectionString) return false;
+        const database = await this._prompt('MongoDB — Database', 'Enter database name', saved.database || 'test');
+        if (!database) return false;
 
         const config: MongoConfig = { connectionString, database };
-
-        try {
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '🍃 Connecting to MongoDB...' },
-                async () => {
-                    await this.mongoExecutor.connect(config);
-                }
-            );
-
-            // Save config
+        return this._runConnect('🍃 Connecting to MongoDB...', `🍃 Connected to MongoDB: ${database}`, async () => {
+            await this.mongoExecutor.connect(config);
             await this.context.globalState.update('mongo.config', config);
-
-            vscode.window.showInformationMessage(
-                `🍃 Connected to MongoDB: ${config.database}`
-            );
-        } catch (err: any) {
-            vscode.window.showErrorMessage(
-                `Failed to connect to MongoDB: ${err.message}`
-            );
-        }
+        });
     }
 
-    private async configurePostgres(): Promise<void> {
+    private async _connectPostgres(): Promise<boolean> {
         const saved = this.context.globalState.get<Partial<PostgresConfig>>('postgres.config', {});
+        const cs = await this._prompt('PostgreSQL — URI', 'Enter connection URI (e.g. postgresql://user:pass@localhost:5432/dbname)', saved.connectionString || 'postgresql://postgres:password@localhost:5432/postgres');
+        if (!cs) return false;
 
-        const connectionString = await vscode.window.showInputBox({
-            title: 'PostgreSQL — Connection String',
-            prompt: 'Enter PostgreSQL connection string',
-            value: saved.connectionString || 'postgresql://user:password@localhost:5432/mydb',
-            ignoreFocusOut: true
-        });
-        if (!connectionString) { return; }
-
-        const config: PostgresConfig = { connectionString };
-
-        try {
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '🐘 Connecting to PostgreSQL...' },
-                async () => {
-                    await this.postgresExecutor.connect(config);
-                }
-            );
-
+        const config: PostgresConfig = { connectionString: cs };
+        return this._runConnect('🐘 Connecting to PostgreSQL...', `🐘 Connected to PostgreSQL`, async () => {
+            await this.postgresExecutor.connect(config);
             await this.context.globalState.update('postgres.config', config);
-            vscode.window.showInformationMessage(`🐘 Connected to PostgreSQL`);
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to connect to PostgreSQL: ${err.message}`);
-        }
+        });
     }
 
-    private async configureSqlite(): Promise<void> {
+    private async _connectSqlite(): Promise<boolean> {
         const saved = this.context.globalState.get<Partial<SqliteConfig>>('sqlite.config', {});
-
-        const database = await vscode.window.showInputBox({
-            title: 'SQLite — Database File',
-            prompt: 'Enter SQLite database file path (or :memory:)',
-            value: saved.database || ':memory:',
-            ignoreFocusOut: true
+        const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+        const fileUris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            defaultUri,
+            filters: { 'SQLite Databases': ['db', 'sqlite', 'sqlite3', 'db3'], 'All Files': ['*'] },
+            title: 'SQLite — Select Database File'
         });
-        if (!database) { return; }
+        const database = fileUris && fileUris[0] ? fileUris[0].fsPath : (await this._prompt('SQLite — File Path', 'Enter path or :memory:', saved.database || ':memory:'));
+        if (!database) return false;
 
         const config: SqliteConfig = { database };
-
-        try {
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '🪶 Connecting to SQLite...' },
-                async () => {
-                    await this.sqliteExecutor.connect(config);
-                }
-            );
-
+        return this._runConnect('🪶 Connecting to SQLite...', `🪶 Connected to SQLite: ${database}`, async () => {
+            await this.sqliteExecutor.connect(config);
             await this.context.globalState.update('sqlite.config', config);
-            vscode.window.showInformationMessage(`🪶 Connected to SQLite: ${config.database}`);
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to connect to SQLite: ${err.message}`);
-        }
-    }
-
-    private async configureRedis(): Promise<void> {
-        const saved = this.context.globalState.get<Partial<RedisConfig>>('redis.config', {});
-
-        const connectionString = await vscode.window.showInputBox({
-            title: 'Redis — Connection String',
-            prompt: 'Enter Redis connection string',
-            value: saved.connectionString || 'redis://localhost:6379',
-            ignoreFocusOut: true
         });
-        if (!connectionString) { return; }
-
-        const config: RedisConfig = { connectionString };
-
-        try {
-            await vscode.window.withProgress(
-                { location: vscode.ProgressLocation.Notification, title: '🟥 Connecting to Redis...' },
-                async () => {
-                    await this.redisExecutor.connect(config);
-                }
-            );
-
-            await this.context.globalState.update('redis.config', config);
-            vscode.window.showInformationMessage(`🟥 Connected to Redis`);
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`Failed to connect to Redis: ${err.message}`);
-        }
     }
 
-    /**
-     * Try to restore saved connections on startup.
-     */
-    async restoreConnections(): Promise<void> {
-        // Restore MySQL
-        const mysqlConfig = this.context.globalState.get<Partial<MySqlConfig>>('mysql.config');
-        if (mysqlConfig && mysqlConfig.host && mysqlConfig.database) {
-            const password = await this.context.secrets.get('mysql.password');
-            if (password !== undefined) {
-                try {
-                    await this.mysqlExecutor.connect({
-                        host: mysqlConfig.host,
-                        port: mysqlConfig.port || 3306,
-                        user: mysqlConfig.user || 'root',
-                        password,
-                        database: mysqlConfig.database
-                    });
-                } catch {
-                    // Silent failure on restore — user can reconnect manually
-                }
-            }
-        }
+    private async _connectRedis(): Promise<boolean> {
+        const saved = this.context.globalState.get<Partial<RedisConfig>>('redis.config', {});
+        const cs = await this._prompt('Redis — URI', 'Enter redis:// URI', saved.connectionString || 'redis://localhost:6379');
+        if (!cs) return false;
 
-        // Restore MongoDB
-        const mongoConfig = this.context.globalState.get<MongoConfig>('mongo.config');
-        if (mongoConfig && mongoConfig.connectionString && mongoConfig.database) {
-            try {
-                await this.mongoExecutor.connect(mongoConfig);
-            } catch {
-                // Silent failure
-            }
-        }
-
-        // Restore Postgres
-        const postgresConfig = this.context.globalState.get<PostgresConfig>('postgres.config');
-        if (postgresConfig && postgresConfig.connectionString) {
-            try {
-                await this.postgresExecutor.connect(postgresConfig);
-            } catch { }
-        }
-
-        // Restore Sqlite
-        const sqliteConfig = this.context.globalState.get<SqliteConfig>('sqlite.config');
-        if (sqliteConfig && sqliteConfig.database) {
-            try {
-                await this.sqliteExecutor.connect(sqliteConfig);
-            } catch { }
-        }
-
-        // Restore Redis
-        const redisConfig = this.context.globalState.get<RedisConfig>('redis.config');
-        if (redisConfig && redisConfig.connectionString) {
-            try {
-                await this.redisExecutor.connect(redisConfig);
-            } catch { }
-        }
+        const config: RedisConfig = { connectionString: cs };
+        return this._runConnect('🟥 Connecting to Redis...', `🟥 Connected to Redis`, async () => {
+            await this.redisExecutor.connect(config);
+            await this.context.globalState.update('redis.config', config);
+        });
     }
 
     async disconnectAll(): Promise<void> {
-        await this.mysqlExecutor.disconnect();
-        await this.mongoExecutor.disconnect();
-        await this.postgresExecutor.disconnect();
-        await this.sqliteExecutor.disconnect();
-        await this.redisExecutor.disconnect();
-    }
-
-    getMySqlStatus(): string {
-        if (this.mysqlExecutor.isConnected()) {
-            const cfg = this.mysqlExecutor.getConfig();
-            return cfg ? `🐬 ${cfg.host}:${cfg.port}/${cfg.database}` : '🐬 Connected';
-        }
-        return '';
-    }
-
-    getMongoStatus(): string {
-        if (this.mongoExecutor.isConnected()) {
-            const cfg = this.mongoExecutor.getConfig();
-            return cfg ? `🍃 ${cfg.database}` : '🍃 Connected';
-        }
-        return '';
-    }
-
-    getPostgresStatus(): string {
-        if (this.postgresExecutor.isConnected()) {
-            return '🐘 Connected';
-        }
-        return '';
-    }
-
-    getSqliteStatus(): string {
-        if (this.sqliteExecutor.isConnected()) {
-            const cfg = this.sqliteExecutor.getConfig();
-            return cfg ? `🪶 ${cfg.database}` : '🪶 Connected';
-        }
-        return '';
-    }
-
-    getRedisStatus(): string {
-        if (this.redisExecutor.isConnected()) {
-            return '🟥 Connected';
-        }
-        return '';
+        await Promise.all([
+            this.mysqlExecutor.disconnect(),
+            this.mongoExecutor.disconnect(),
+            this.postgresExecutor.disconnect(),
+            this.sqliteExecutor.disconnect(),
+            this.redisExecutor.disconnect(),
+        ]);
+        vscode.window.showInformationMessage('Disconnected from all databases.');
     }
 }

@@ -49,15 +49,17 @@ export class MySqlExecutor {
 
     async execute(query: string): Promise<MySqlResult> {
         if (!this.pool) {
-            return { error: 'Not connected to MySQL. Run "Query Notebook: Configure Database Connection" first.' };
+            return { error: 'Not connected to MySQL. Run "AnyINB: Configure Database Connection" first.' };
         }
 
         try {
-            const [rows, fields] = await this.pool.execute(query);
+            // Use pool.query() instead of pool.execute() so statements like SHOW TABLES,
+            // DESCRIBE, EXPLAIN, and multi-statements are supported.
+            const [rows, fields] = await this.pool.query(query);
 
-            // For SELECT queries, rows is an array and fields contains column metadata
+            // For SELECT/SHOW/DESCRIBE queries, rows is an array and fields contains column metadata
             if (Array.isArray(rows) && fields && Array.isArray(fields)) {
-                const fieldNames = fields.map((f: any) => f.name);
+                const fieldNames = (fields as any[]).map((f: any) => f.name);
                 return { rows, fields: fieldNames };
             }
 

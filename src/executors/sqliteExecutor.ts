@@ -39,7 +39,7 @@ export class SqliteExecutor {
 
     async execute(query: string): Promise<SqliteResult> {
         if (!this.db) {
-            return { error: 'Not connected to SQLite. Run "Query Notebook: Configure Database Connection" first.' };
+            return { error: 'Not connected to SQLite. Run "AnyINB: Configure Database Connection" first.' };
         }
 
         return new Promise((resolve) => {

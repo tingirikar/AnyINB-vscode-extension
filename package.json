@@ -4,6 +4,14 @@
   "description": "Practice ANY language in interactive notebook cells. Databases, programming languages, shell, APIs — all in one .anyinb file.",
   "version": "0.2.0",
   "publisher": "xenon-dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tingirikar/anyinb-vscode-extension.git"
+  },
+  "homepage": "https://github.com/tingirikar/anyinb-vscode-extension#readme",
+  "bugs": {
+    "url": "https://github.com/tingirikar/anyinb-vscode-extension/issues"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -95,6 +103,45 @@
         "extensions": [
           ".ws"
         ]
+      },
+      {
+        "id": "mongodb",
+        "aliases": [
+          "MongoDB",
+          "mongodb",
+          "mongosh",
+          "Mongo Command Prompt"
+        ],
+        "extensions": [
+          ".mongodb",
+          ".mongosh"
+        ]
+      },
+      {
+        "id": "cmd",
+        "aliases": [
+          "Command Prompt",
+          "cmd",
+          "CMD"
+        ],
+        "extensions": [
+          ".cmd",
+          ".bat"
+        ]
+      },
+      {
+        "id": "wsl",
+        "aliases": [
+          "WSL (Linux)",
+          "wsl",
+          "Linux (WSL)",
+          "Ubuntu (WSL)",
+          "Bash (WSL)"
+        ],
+        "extensions": [
+          ".wsl",
+          ".sh"
+        ]
       }
     ],
     "notebooks": [
@@ -115,8 +162,28 @@
         "icon": "$(database)"
       },
       {
+        "command": "anyinb.quickConnect",
+        "title": "AnyINB: Quick Connect to Database",
+        "icon": "$(zap)"
+      },
+      {
         "command": "anyinb.newNotebook",
         "title": "AnyINB: New Notebook"
+      },
+      {
+        "command": "anyinb.selectTheme",
+        "title": "AnyINB: Select Output Color Theme",
+        "icon": "$(paintcan)"
+      },
+      {
+        "command": "anyinb.startPresentation",
+        "title": "AnyINB: Start Presentation / Story Mode",
+        "icon": "$(play)"
+      },
+      {
+        "command": "anyinb.enableSandbox",
+        "title": "AnyINB: Enable In-Memory Sandbox Mode",
+        "icon": "$(beaker)"
       },
       {
         "command": "anyinb.disconnectAll",
@@ -126,6 +193,61 @@
     "configuration": {
       "title": "AnyINB",
       "properties": {
+        "anyinb.useSandboxIfDisconnected": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically execute in zero-install in-memory sandbox when no external database is connected."
+        },
+        "anyinb.outputTheme": {
+          "type": "string",
+          "default": "mongosh-terminal",
+          "enum": [
+            "mongosh-terminal",
+            "dracula",
+            "tokyo-night",
+            "monokai",
+            "one-dark",
+            "nord",
+            "github-dark",
+            "solarized-dark"
+          ],
+          "enumDescriptions": [
+            "Authentic mongosh / Command Prompt terminal (Black BG, White Keys, Green Strings)",
+            "Classic Dracula Theme (Purple, Green, Cyan & Pink)",
+            "Tokyo Night Theme (Deep Indigo, Soft Blue & Magenta)",
+            "High-contrast Monokai Retro Theme (Green, Yellow, Orange & Magenta)",
+            "Atom One Dark Theme (Slate BG, Green Strings, Blue Accents)",
+            "Nordic Frost Theme (Arctic Blue, Snow White & Forest Green)",
+            "GitHub Dark Theme (Official GitHub Dark Gray, Blue & Green)",
+            "Solarized Dark Theme (Deep Teal, Yellow & Forest Green)"
+          ],
+          "description": "Visual color theme for notebook cell outputs (Command Prompt, Table, JSON, Console)."
+        },
+        "anyinb.maxOutputHeight": {
+          "type": "number",
+          "default": 450,
+          "description": "Maximum height in pixels for scrollable cell output (set to 0 for unlimited height)."
+        },
+        "anyinb.fontSize": {
+          "type": "number",
+          "default": 13,
+          "description": "Font size in pixels for code, tables, and terminal outputs."
+        },
+        "anyinb.enableSearch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable instant live search and filtering on all tabular query results."
+        },
+        "anyinb.enableCopyButtons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show one-click Copy buttons on outputs (Copy Table, Copy JSON, Copy Text)."
+        },
+        "anyinb.pythonAutoPlot": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically capture and render Matplotlib/Seaborn plots directly in the cell output."
+        },
         "anyinb.useDocker": {
           "type": "boolean",
           "default": false,
@@ -148,6 +270,7 @@
     "mongodb": "^6.8.0",
     "mysql2": "^3.11.0",
     "pg": "^8.22.0",
+    "picomatch": "^4.0.5",
     "sqlite3": "^6.0.1",
     "ws": "^8.21.3"
   },

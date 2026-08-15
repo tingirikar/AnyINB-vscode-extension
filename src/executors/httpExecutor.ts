@@ -115,12 +115,17 @@ export class HttpExecutor {
             const isHttps = parsedUrl.protocol === 'https:';
             const lib = isHttps ? https : http;
 
+            const headers = { ...req.headers };
+            if (req.body && !headers['Content-Length'] && !headers['content-length']) {
+                headers['Content-Length'] = String(Buffer.byteLength(req.body));
+            }
+
             const options = {
                 hostname: parsedUrl.hostname,
                 port: parsedUrl.port || (isHttps ? 443 : 80),
                 path: parsedUrl.pathname + parsedUrl.search,
                 method: req.method,
-                headers: req.headers,
+                headers,
                 timeout: 30000,
             };
 

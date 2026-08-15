@@ -38,7 +38,7 @@ export class PostgresExecutor {
 
     async execute(query: string): Promise<PostgresResult> {
         if (!this.pool) {
-            return { error: 'Not connected to PostgreSQL. Run "Query Notebook: Configure Database Connection" first.' };
+            return { error: 'Not connected to PostgreSQL. Run "AnyINB: Configure Database Connection" first.' };
         }
 
         try {
