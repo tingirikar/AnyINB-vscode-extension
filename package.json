@@ -252,6 +252,19 @@
           "type": "boolean",
           "default": false,
           "description": "If enabled, AnyINB will attempt to execute languages (like Python, Node.js) inside isolated Docker containers instead of the host machine."
+        },
+        "anyinb.runAllMode": {
+          "type": "string",
+          "default": "sequential",
+          "enum": [
+            "sequential",
+            "concurrent"
+          ],
+          "enumDescriptions": [
+            "Run cells one after another (safe for REPL languages that share state across cells)",
+            "Run all cells at once in parallel (faster, but output may intermix for REPL languages)"
+          ],
+          "description": "Controls how 'Run All' executes cells — sequentially (one-by-one, default) or concurrently (all at once)."
         }
       }
     }

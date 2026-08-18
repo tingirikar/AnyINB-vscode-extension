@@ -18,6 +18,7 @@ export class ReplExecutor {
     private buffers: Map<string, { out: string, err: string }> = new Map();
 
     private readonly END_MARKER = '___ANYINB_EXEC_END___';
+    private readonly CODE_END_MARKER = '___ANYINB_CODE_END___';
 
     async execute(
         code: string,
@@ -81,9 +82,9 @@ export class ReplExecutor {
                         .replace(this.END_MARKER + '\n', '')
                         .replace(this.END_MARKER, '');
 
-                    // Strip Node REPL prompt artifacts (> , ... , undefined lines)
+                    // Clean Node.js VM output (just trim, no REPL artifacts)
                     if (language === 'javascript') {
-                        stdout = this._cleanNodeReplOutput(stdout);
+                        stdout = stdout.trim();
                     }
 
                     let stderr = buf.err;
@@ -165,12 +166,12 @@ except Exception:
 ` : '';
                     wrappedCode = plotPrelude + '\n' + code + '\n' + plotCapture + `\nprint('${this.END_MARKER}')\n`;
                 } else if (language === 'javascript') {
-                    // Convert top-level const/let to var so declarations can be
-                    // re-run without "already declared" errors, while still keeping
-                    // variables in the global REPL scope (accessible across cells).
-                    // This is the same approach Chrome DevTools uses.
+                    // Convert top-level const/let to var so declarations persist
+                    // across cells in the global scope (same as Chrome DevTools).
                     const safeCode = this._convertConstLetToVar(code);
-                    wrappedCode = safeCode + `\nconsole.log('${this.END_MARKER}');\n`;
+                    // Send code block + delimiter; the VM evaluator runs the block
+                    // as a single unit and prints END_MARKER after execution.
+                    wrappedCode = safeCode + `\n${this.CODE_END_MARKER}\n`;
                 } else {
                     wrappedCode = code + `\necho '${this.END_MARKER}'\n`;
                 }
@@ -182,35 +183,7 @@ except Exception:
         });
     }
 
-    /**
-     * Clean up Node.js REPL prompt artifacts from stdout.
-     * The interactive REPL prefixes lines with "> ", "... ", and prints
-     * "undefined" for expression-statements.  Strip all of that.
-     */
-    private _cleanNodeReplOutput(raw: string): string {
-        const lines = raw.split('\n');
-        const cleaned: string[] = [];
-        for (const line of lines) {
-            // Skip bare REPL prompt lines
-            if (/^>\s*$/.test(line) || /^\.\.\.\s*$/.test(line)) {
-                continue;
-            }
-            // Skip standalone "undefined" that the REPL prints for void expressions
-            if (line.trim() === 'undefined') {
-                continue;
-            }
-            // Strip leading "> " or "... " prompt prefixes
-            let stripped = line;
-            stripped = stripped.replace(/^>\s?/, '');
-            stripped = stripped.replace(/^\.\.\.\s?/, '');
-            cleaned.push(stripped);
-        }
-        // Trim trailing empty lines
-        while (cleaned.length > 0 && cleaned[cleaned.length - 1].trim() === '') {
-            cleaned.pop();
-        }
-        return cleaned.join('\n');
-    }
+    // Node REPL cleaner removed — VM evaluator produces no REPL artifacts.
 
     private _cleanPythonOutput(raw: string): string {
         const lines = raw.split('\n');
@@ -278,7 +251,32 @@ except Exception:
             args = useDocker ? ['run', '-i', '--rm', 'python:3.9-slim', 'python', '-i', '-q'] : ['-i', '-q', '-u'];
         } else if (language === 'javascript') {
             cmd = useDocker ? 'docker' : 'node';
-            args = useDocker ? ['run', '-i', '--rm', 'node:18-alpine', 'node', '-i'] : ['-i'];
+            // VM block evaluator: reads code blocks from stdin (delimited by
+            // CODE_END_MARKER), runs each as a single unit via vm.runInThisContext
+            // (like running a file). Only console.log output appears in stdout.
+            // var declarations persist across cells via the global scope.
+            const evalScript = [
+                "const vm=require('vm');",
+                "global.require=require;",
+                "global.__filename='notebook.js';",
+                "global.__dirname=process.cwd();",
+                "process.stdin.setEncoding('utf8');",
+                "let _b='';",
+                "const _D='___ANYINB_CODE_END___',_E='___ANYINB_EXEC_END___';",
+                "process.stdin.on('data',_c=>{",
+                "  _b+=_c;let _i;",
+                "  while((_i=_b.indexOf(_D))!==-1){",
+                "    const _code=_b.substring(0,_i);",
+                "    _b=_b.substring(_i+_D.length).replace(/^\\n/,'');",
+                "    if(_code.trim()){",
+                "      try{vm.runInThisContext(_code,{filename:'cell.js'})}",
+                "      catch(_e){process.stderr.write((_e.stack||String(_e))+'\\n')}",
+                "    }",
+                "    console.log(_E);",
+                "  }",
+                "});",
+            ].join('');
+            args = useDocker ? ['run', '-i', '--rm', 'node:18-alpine', 'node', '-e', evalScript] : ['-e', evalScript];
         } else if (language === 'shellscript' || language === 'bash') {
             cmd = useDocker ? 'docker' : 'bash';
             args = useDocker ? ['run', '-i', '--rm', 'ubuntu:latest', 'bash'] : [];
@@ -287,7 +285,9 @@ except Exception:
         }
 
         try {
+            const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || process.cwd();
             const proc = cp.spawn(cmd, args, {
+                cwd,
                 env: { ...process.env },
                 stdio: ['pipe', 'pipe', 'pipe']
             });

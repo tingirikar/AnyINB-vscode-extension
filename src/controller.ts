@@ -79,13 +79,19 @@ export class AnyInbController {
         this.websocketExecutor = new WebsocketExecutor();
     }
 
-    private _executeAll(
+    private async _executeAll(
         cells: vscode.NotebookCell[],
         _notebook: vscode.NotebookDocument,
         _controller: vscode.NotebookController
-    ): void {
-        for (const cell of cells) {
-            this._doExecution(cell);
+    ): Promise<void> {
+        const mode = vscode.workspace.getConfiguration('anyinb').get<string>('runAllMode', 'sequential');
+
+        if (mode === 'concurrent') {
+            await Promise.all(cells.map(cell => this._doExecution(cell)));
+        } else {
+            for (const cell of cells) {
+                await this._doExecution(cell);
+            }
         }
     }
 
