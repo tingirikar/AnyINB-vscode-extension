@@ -23,7 +23,7 @@ Supported database types include:
 - MongoDB
 - Redis
 
-If no external connection is configured, the extension can fall back to an in-memory sandbox for quick experiments.
+When a query cell is executed without an active connection, AnyINB displays a connection prompt so you can connect directly to your live database server.
 
 ## Shell commands
 

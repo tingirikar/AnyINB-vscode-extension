@@ -116,12 +116,6 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.enableSandbox, async () => {
-            await vscode.workspace.getConfiguration('anyinb').update('useSandboxIfDisconnected', true, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage('🧪 In-Memory Sandbox Mode is now ACTIVE. You can run SQL and MongoDB queries with zero database setup!');
-        })
-    );
 
     context.subscriptions.push(
         vscode.commands.registerCommand(NOTEBOOK_COMMANDS.startPresentation, async () => {

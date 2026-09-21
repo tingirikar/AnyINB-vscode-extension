@@ -17,7 +17,6 @@ import {
 
 import { DataContext } from './dataContext';
 import { MockServer } from './mockServer';
-import { SandboxExecutor } from './executors/sandboxExecutor';
 import {
     ALL_SUPPORTED_LANGUAGES,
     HTTP_LANGUAGES,
@@ -148,7 +147,7 @@ export class AnyInbController {
 
         try {
             // Route to the right executor
-            if (language === 'sql') {
+            if (language === 'mysql' || language === 'sql') {
                 await this._executeMySql(execution, code, cell);
             } else if (language === 'postgres') {
                 await this._executePostgres(execution, code, cell);
@@ -196,6 +195,18 @@ export class AnyInbController {
         const trimmed = code.trim();
         if (!trimmed) return currentLanguage;
 
+        // If the user already chose a database or SQL language, keep it unless code matches another paradigm
+        const sqlDialects = ['mysql', 'postgres', 'sqlite', 'sql'];
+        if (sqlDialects.includes(currentLanguage.toLowerCase())) {
+            if (this._looksLikeMongo(trimmed)) {
+                return 'mongodb';
+            }
+            if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+https?:\/\//i.test(trimmed)) {
+                return 'http';
+            }
+            return currentLanguage;
+        }
+
         // 1. Java
         if (/\bpublic\s+(class|interface|enum)\s+\w+|\bpublic\s+static\s+void\s+main\s*\(|System\.out\.print/.test(trimmed)) {
             return 'java';
@@ -234,12 +245,17 @@ export class AnyInbController {
             return 'mongodb';
         }
 
-        // 8. SQL
-        if (/^(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|DROP\s+TABLE|ALTER\s+TABLE)\b/i.test(trimmed)) {
-            return 'sql';
+        // 8. MySQL specific
+        if (/^SHOW\s+(DATABASES|TABLES|COLUMNS|VARIABLES|STATUS|PROCESSLIST)\b/i.test(trimmed)) {
+            return 'mysql';
         }
 
-        // 9. HTTP
+        // 9. SQL / MySQL
+        if (/^(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|DROP\s+TABLE|ALTER\s+TABLE|DESCRIBE|EXPLAIN)\b/i.test(trimmed)) {
+            return currentLanguage === 'mysql' ? 'mysql' : 'sql';
+        }
+
+        // 10. HTTP
         if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+https?:\/\//i.test(trimmed)) {
             return 'http';
         }
@@ -279,18 +295,6 @@ export class AnyInbController {
         query: string
     ): Promise<void> {
         if (!executor || !executor.isConnected()) {
-            if (/sandbox/i.test(query) || vscode.workspace.getConfiguration('anyinb').get<boolean>('useSandboxIfDisconnected', true)) {
-                const start = Date.now();
-                const res = await SandboxExecutor.getInstance().executeSql(query);
-                const elapsed = Date.now() - start;
-                if (res.error) {
-                    this._outputHtml(execution, renderError(res.error, `${dbName} Sandbox`), false);
-                    return;
-                }
-                const html = renderTable(res.rows || [], res.fields || [], elapsed, `${dbName} Sandbox`, query);
-                this._outputHtml(execution, html, true);
-                return;
-            }
             this._showConnectionRequired(execution, cell, dbName);
             return;
         }
@@ -374,29 +378,7 @@ export class AnyInbController {
                 return;
             }
 
-            if (/sandbox/i.test(code) || vscode.workspace.getConfiguration('anyinb').get<boolean>('useSandboxIfDisconnected', true)) {
-                const res = SandboxExecutor.getInstance().executeMongo(code);
-                if (typeof res === 'string') {
-                    this._outputConsole(execution, res, '', true);
-                } else if (Array.isArray(res) || (typeof res === 'object' && res !== null)) {
-                    this._outputHtml(execution, renderJson(res, 1, 'MongoDB Sandbox'), true);
-                } else {
-                    this._outputConsole(execution, String(res), '', true);
-                }
-                return;
-            }
-
-            // For other mongo commands (db.find, show dbs, etc.), show the Quick Connect button
-            this._pendingCell = cell;
-            execution.replaceOutput([
-                new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(
-                        renderConnectionRequired('MongoDB'),
-                        'text/html'
-                    )
-                ])
-            ]);
-            execution.end(false, Date.now());
+            this._showConnectionRequired(execution, cell, 'MongoDB');
             return;
         }
 

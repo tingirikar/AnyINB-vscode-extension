@@ -10,7 +10,6 @@ It is designed for small, practical notebook sessions rather than a full multi-t
 - SQL queries for MySQL, PostgreSQL, SQLite, MongoDB, and Redis
 - HTTP and GraphQL request cells
 - shell execution for Bash, PowerShell, CMD, and WSL
-- local in-memory sandbox execution when no external database is connected
 - mock endpoint creation for quick API-style experimentation
 
 ## Architecture
@@ -26,7 +25,7 @@ It is designed for small, practical notebook sessions rather than a full multi-t
 2. Install the extension.
 3. Create a new `.anyinb` notebook.
 4. Add a code cell and run it with the notebook play button.
-5. Configure a database from the command palette if you want live connections instead of sandbox mode.
+5. Configure database connections from the command palette or cell prompt to connect to your live databases.
 
 ## Settings
 

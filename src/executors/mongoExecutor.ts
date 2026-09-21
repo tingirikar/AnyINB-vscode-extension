@@ -119,6 +119,12 @@ export class MongoExecutor {
         return new Proxy(db, {
             get(target: any, prop: string | symbol) {
                 if (typeof prop === 'string') {
+                    if (prop === 'version') {
+                        return async () => {
+                            const info = await target.admin().serverInfo();
+                            return info.version || 'unknown';
+                        };
+                    }
                     if (prop in target || typeof target[prop] === 'function') {
                         const val = target[prop];
                         return typeof val === 'function' ? val.bind(target) : val;
@@ -140,6 +146,15 @@ export class MongoExecutor {
     private _translateShellCommands(code: string): string {
         const trimmed = code.trim();
         const lower = trimmed.toLowerCase().replace(/;+$/, '').trim();
+
+        // db.version() / version()
+        if (lower === 'db.version()' || lower === 'version()') {
+            return `
+                const adminDb = client.db().admin();
+                const info = await adminDb.serverInfo();
+                return info.version || 'unknown';
+            `;
+        }
 
         // show dbs / show databases
         if (lower === 'show dbs' || lower === 'show databases') {

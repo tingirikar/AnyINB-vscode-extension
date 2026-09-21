@@ -52,6 +52,17 @@
   "contributes": {
     "languages": [
       {
+        "id": "mysql",
+        "aliases": [
+          "MySQL",
+          "mysql"
+        ],
+        "extensions": [
+          ".sql",
+          ".mysql"
+        ]
+      },
+      {
         "id": "postgres",
         "aliases": [
           "PostgreSQL",
@@ -144,6 +155,13 @@
         ]
       }
     ],
+    "grammars": [
+      {
+        "language": "mysql",
+        "scopeName": "source.mysql",
+        "path": "./syntaxes/mysql.tmLanguage.json"
+      }
+    ],
     "notebooks": [
       {
         "type": "anyinb",
@@ -181,11 +199,6 @@
         "icon": "$(play)"
       },
       {
-        "command": "anyinb.enableSandbox",
-        "title": "AnyINB: Enable In-Memory Sandbox Mode",
-        "icon": "$(beaker)"
-      },
-      {
         "command": "anyinb.disconnectAll",
         "title": "AnyINB: Disconnect All Databases"
       }
@@ -193,11 +206,6 @@
     "configuration": {
       "title": "AnyINB",
       "properties": {
-        "anyinb.useSandboxIfDisconnected": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically execute in zero-install in-memory sandbox when no external database is connected."
-        },
         "anyinb.outputTheme": {
           "type": "string",
           "default": "mongosh-terminal",
