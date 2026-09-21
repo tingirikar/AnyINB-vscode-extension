@@ -9,6 +9,7 @@ import { NOTEBOOK_COMMANDS } from './config';
 export class StatusBarManager implements vscode.Disposable {
     private statusBarItem: vscode.StatusBarItem;
     private connectionManager: ConnectionManager;
+    private disposables: vscode.Disposable[] = [];
 
     constructor(connectionManager: ConnectionManager) {
         this.connectionManager = connectionManager;
@@ -20,6 +21,12 @@ export class StatusBarManager implements vscode.Disposable {
 
         this.statusBarItem.command = NOTEBOOK_COMMANDS.configureConnection;
         this.statusBarItem.tooltip = 'AnyINB — Click to configure database connection';
+
+        this.disposables.push(
+            this.connectionManager.onDidChangeConnection(() => {
+                this.update();
+            })
+        );
 
         this.update();
         this.statusBarItem.show();
@@ -46,6 +53,7 @@ export class StatusBarManager implements vscode.Disposable {
     }
 
     dispose(): void {
+        this.disposables.forEach(d => d.dispose());
         this.statusBarItem.dispose();
     }
 }

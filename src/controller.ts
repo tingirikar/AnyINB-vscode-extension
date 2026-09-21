@@ -295,8 +295,11 @@ export class AnyInbController {
         query: string
     ): Promise<void> {
         if (!executor || !executor.isConnected()) {
-            this._showConnectionRequired(execution, cell, dbName);
-            return;
+            const connected = await this.connectionManager.quickConnect(dbName.toLowerCase());
+            if (!connected || !executor.isConnected()) {
+                this._showConnectionRequired(execution, cell, dbName);
+                return;
+            }
         }
 
         const start = Date.now();
@@ -359,28 +362,24 @@ export class AnyInbController {
         }
 
         if (!executor || !executor.isConnected()) {
-            // If the user typed `use <database>`, auto-trigger connection dialog
-            // — no extra clicks needed, just like an OAuth popup
-            const useMatch = cleanCode.match(/^use\s+(\S+)\s*;?$/i);
-            if (useMatch) {
-                const dbName = useMatch[1];
-                const success = await this.connectionManager.quickConnect('mongodb');
-                if (success) {
-                    // Switch to the requested database after connecting
-                    const switchResult = await this.connectionManager.getMongoExecutor().execute(`use ${dbName}`);
-                    if (switchResult.error) {
-                        this._outputHtml(execution, renderError(switchResult.error, 'MongoDB'), false);
-                    } else {
-                        this._outputConsole(execution, `switched to db ${dbName}`, '', true);
-                    }
-                } else {
-                    this._outputHtml(execution, renderError('Connection cancelled.', 'MongoDB'), false);
-                }
+            const success = await this.connectionManager.quickConnect('mongodb');
+            if (!success || !executor.isConnected()) {
+                this._showConnectionRequired(execution, cell, 'MongoDB');
                 return;
             }
 
-            this._showConnectionRequired(execution, cell, 'MongoDB');
-            return;
+            // If the user typed `use <database>`, switch db right away
+            const useMatch = cleanCode.match(/^use\s+(\S+)\s*;?$/i);
+            if (useMatch) {
+                const dbName = useMatch[1];
+                const switchResult = await executor.execute(`use ${dbName}`);
+                if (switchResult.error) {
+                    this._outputHtml(execution, renderError(switchResult.error, 'MongoDB'), false);
+                } else {
+                    this._outputConsole(execution, `switched to db ${dbName}`, '', true);
+                }
+                return;
+            }
         }
 
         const startTime = Date.now();
@@ -436,17 +435,11 @@ export class AnyInbController {
         const executor = this.connectionManager.getRedisExecutor();
 
         if (!executor || !executor.isConnected()) {
-            this._pendingCell = cell;
-            execution.replaceOutput([
-                new vscode.NotebookCellOutput([
-                    vscode.NotebookCellOutputItem.text(
-                        renderConnectionRequired('Redis'),
-                        'text/html'
-                    )
-                ])
-            ]);
-            execution.end(false, Date.now());
-            return;
+            const connected = await this.connectionManager.quickConnect('redis');
+            if (!connected || !executor.isConnected()) {
+                this._showConnectionRequired(execution, cell, 'Redis');
+                return;
+            }
         }
 
         const startTime = Date.now();

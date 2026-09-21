@@ -11,6 +11,9 @@ import { RedisExecutor, RedisConfig } from './executors/redisExecutor';
 export class ConnectionManager {
     private static instance: ConnectionManager;
 
+    private _onDidChangeConnection = new vscode.EventEmitter<void>();
+    readonly onDidChangeConnection = this._onDidChangeConnection.event;
+
     private mysqlExecutor = new MySqlExecutor();
     private mongoExecutor = new MongoExecutor();
     private postgresExecutor = new PostgresExecutor();
@@ -55,6 +58,7 @@ export class ConnectionManager {
         switch (dbType.toLowerCase()) {
             case 'mysql': return this._connectMySql();
             case 'mongodb': return this._connectMongo();
+            case 'postgresql':
             case 'postgres': return this._connectPostgres();
             case 'sqlite': return this._connectSqlite();
             case 'redis': return this._connectRedis();
@@ -71,6 +75,7 @@ export class ConnectionManager {
     private async _runConnect(title: string, successMsg: string, connectFn: () => Promise<void>): Promise<boolean> {
         try {
             await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title }, connectFn);
+            this._onDidChangeConnection.fire();
             vscode.window.showInformationMessage(successMsg);
             return true;
         } catch (err: any) {
@@ -161,6 +166,7 @@ export class ConnectionManager {
             this.sqliteExecutor.disconnect(),
             this.redisExecutor.disconnect(),
         ]);
+        this._onDidChangeConnection.fire();
         vscode.window.showInformationMessage('Disconnected from all databases.');
     }
 }
