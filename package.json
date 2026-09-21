@@ -126,7 +126,8 @@
         "extensions": [
           ".mongodb",
           ".mongosh"
-        ]
+        ],
+        "configuration": "./syntaxes/mongodb-language-configuration.json"
       },
       {
         "id": "cmd",
@@ -160,6 +161,21 @@
         "language": "mysql",
         "scopeName": "source.mysql",
         "path": "./syntaxes/mysql.tmLanguage.json"
+      },
+      {
+        "language": "mongodb",
+        "scopeName": "source.mongodb",
+        "path": "./syntaxes/mongodb.tmLanguage.json"
+      },
+      {
+        "language": "postgres",
+        "scopeName": "source.postgres",
+        "path": "./syntaxes/postgres.tmLanguage.json"
+      },
+      {
+        "language": "sqlite",
+        "scopeName": "source.sqlite",
+        "path": "./syntaxes/sqlite.tmLanguage.json"
       }
     ],
     "notebooks": [

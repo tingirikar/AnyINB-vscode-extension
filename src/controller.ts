@@ -286,7 +286,7 @@ export class AnyInbController {
     private async _executeSqlDb(
         execution: vscode.NotebookCellExecution,
         cell: vscode.NotebookCell,
-        executor: { isConnected(): boolean; execute(q: string): Promise<{ rows?: any; fields?: string[]; error?: string }> },
+        executor: { isConnected(): boolean; execute(q: string): Promise<{ rows?: any; fields?: string[]; error?: string; results?: any[] }> },
         dbName: string,
         query: string
     ): Promise<void> {
@@ -305,6 +305,30 @@ export class AnyInbController {
 
         if (res.error) {
             this._outputHtml(execution, renderError(res.error, dbName), false);
+            return;
+        }
+
+        if (res.results && res.results.length > 0) {
+            const htmlParts: string[] = [];
+            for (const item of res.results) {
+                if (item.isTable && item.rows && Array.isArray(item.rows) && item.rows.length > 0) {
+                    htmlParts.push(renderTable(item.rows, item.fields || Object.keys(item.rows[0]), elapsed, dbName, query));
+                } else if (item.isTable && item.rows && Array.isArray(item.rows) && item.rows.length === 0) {
+                    htmlParts.push(renderTable([], item.fields || [], elapsed, dbName, query));
+                } else if (item.message) {
+                    htmlParts.push(renderSuccess(item.message, elapsed, dbName));
+                } else if (item.rows) {
+                    const info = item.rows as any;
+                    const msg = info.message
+                        || ((info.affectedRows !== undefined || info.changedRows !== undefined)
+                            ? `Query OK. Affected rows: ${info.affectedRows ?? 0}, Changed: ${info.changedRows ?? 0}`
+                            : 'Query executed successfully.');
+                    htmlParts.push(renderSuccess(msg, elapsed, dbName));
+                } else {
+                    htmlParts.push(renderSuccess('Query executed successfully.', elapsed, dbName));
+                }
+            }
+            this._outputHtml(execution, htmlParts.join('\n<div style="height:10px;"></div>\n'), true);
             return;
         }
 
@@ -387,6 +411,21 @@ export class AnyInbController {
 
         if (result.error) {
             this._outputHtml(execution, renderError(result.error, 'MongoDB'), false);
+            return;
+        }
+
+        if (result.results && result.results.length > 1) {
+            const htmlParts: string[] = [];
+            for (const item of result.results) {
+                if (typeof item === 'string') {
+                    htmlParts.push(renderSuccess(item, elapsed, 'MongoDB'));
+                } else if (Array.isArray(item) || (item && typeof item === 'object')) {
+                    htmlParts.push(renderJson(item, elapsed, 'MongoDB'));
+                } else {
+                    htmlParts.push(renderSuccess(String(item ?? 'Operation completed.'), elapsed, 'MongoDB'));
+                }
+            }
+            this._outputHtml(execution, htmlParts.join('\n<div style="height:10px;"></div>\n'), true);
             return;
         }
 

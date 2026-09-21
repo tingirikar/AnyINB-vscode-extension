@@ -1,9 +1,17 @@
 import { Pool } from 'pg';
 
+export interface PostgresStatementResult {
+    rows?: any[];
+    fields?: string[];
+    message?: string;
+    isTable?: boolean;
+}
+
 export interface PostgresResult {
     rows?: any[];
     fields?: string[];
     error?: string;
+    results?: PostgresStatementResult[];
 }
 
 export interface PostgresConfig {
@@ -45,11 +53,14 @@ export class PostgresExecutor {
             const result = await this.pool.query(query);
 
             if (Array.isArray(result)) {
-                // If multiple queries were sent, just return the last result
-                const lastResult = result[result.length - 1];
-                return { 
-                    rows: lastResult.rows, 
-                    fields: lastResult.fields?.filter((f: any) => f && typeof f.name === 'string').map((f: any) => f.name)
+                const statementResults: PostgresStatementResult[] = result.map(r => {
+                    const isTable = r.command === 'SELECT' || (Array.isArray(r.rows) && r.fields && r.fields.length > 0);
+                    const fields = r.fields?.filter((f: any) => f && typeof f.name === 'string').map((f: any) => f.name);
+                    const message = `${r.command || 'Query'} OK. Affected rows: ${r.rowCount ?? 0}`;
+                    return { rows: r.rows, fields, message, isTable };
+                });
+                return {
+                    results: statementResults
                 };
             }
 

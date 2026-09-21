@@ -1,0 +1,81 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "MongoDB",
+  "scopeName": "source.mongodb",
+  "patterns": [
+    {
+      "include": "#shell-commands"
+    },
+    {
+      "include": "#mongo-globals"
+    },
+    {
+      "include": "#mongo-types"
+    },
+    {
+      "include": "#mongo-methods"
+    },
+    {
+      "include": "#mongo-operators"
+    },
+    {
+      "include": "source.js"
+    }
+  ],
+  "repository": {
+    "shell-commands": {
+      "patterns": [
+        {
+          "match": "(?i)^\\s*(show)\\s+(dbs|databases|collections|tables|users|roles|profile|logs)\\b",
+          "captures": {
+            "1": { "name": "keyword.other.mongodb" },
+            "2": { "name": "support.constant.mongodb" }
+          }
+        },
+        {
+          "match": "(?i)^\\s*(use)\\s+([`\"']?([^;\\s'\"`]+)[`\"']?)",
+          "captures": {
+            "1": { "name": "keyword.control.mongodb" },
+            "2": { "name": "entity.name.namespace.mongodb" }
+          }
+        },
+        {
+          "match": "(?i)^\\s*(cls|it|exit|quit|help)\\b",
+          "name": "keyword.other.mongodb"
+        }
+      ]
+    },
+    "mongo-globals": {
+      "patterns": [
+        {
+          "match": "\\b(db|sh|rs|sp|Mongo|client)\\b",
+          "name": "variable.language.mongodb"
+        }
+      ]
+    },
+    "mongo-types": {
+      "patterns": [
+        {
+          "match": "\\b(ObjectId|ISODate|UUID|Timestamp|NumberInt|NumberLong|NumberDecimal|BinData|HexData|MD5|MinKey|MaxKey|DBRef|DBPointer|Code)\\b",
+          "name": "support.class.mongodb"
+        }
+      ]
+    },
+    "mongo-methods": {
+      "patterns": [
+        {
+          "match": "\\b(find|findOne|findOneAndDelete|findOneAndReplace|findOneAndUpdate|insertOne|insertMany|updateOne|updateMany|replaceOne|deleteOne|deleteMany|bulkWrite|aggregate|countDocuments|estimatedDocumentCount|distinct|drop|dropDatabase|createCollection|createIndex|createIndexes|dropIndex|dropIndexes|getIndexes|reIndex|stats|version|getName|getCollection|getCollectionNames|getCollectionInfos|runCommand|adminCommand|explain|pretty|toArray|forEach|map|limit|skip|sort|count|hasNext|next)\\b(?=\\s*\\()",
+          "name": "support.function.mongodb"
+        }
+      ]
+    },
+    "mongo-operators": {
+      "patterns": [
+        {
+          "match": "(\\$[a-zA-Z0-9_]+)",
+          "name": "constant.language.operator.mongodb"
+        }
+      ]
+    }
+  }
+}

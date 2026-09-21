@@ -1,9 +1,17 @@
 import * as mysql from 'mysql2/promise';
 
+export interface MySqlStatementResult {
+    rows?: any;
+    fields?: string[];
+    message?: string;
+    isTable?: boolean;
+}
+
 export interface MySqlResult {
     rows?: any;
     fields?: string[];
     error?: string;
+    results?: MySqlStatementResult[];
 }
 
 export interface MySqlConfig {
@@ -99,39 +107,43 @@ export class MySqlExecutor {
             );
 
             if (isMultiStatement) {
-                // Find if any statement was a SELECT returning tabular data
-                let lastSelectRows: any[] | null = null;
-                let lastSelectFields: string[] | null = null;
+                const statementResults: MySqlStatementResult[] = [];
 
                 for (let i = 0; i < (rows as any[]).length; i++) {
                     const stmtRows = (rows as any[])[i];
-                    const stmtFields = (fields as any[])[i];
-                    if (Array.isArray(stmtRows) && Array.isArray(stmtFields)) {
-                        lastSelectRows = stmtRows;
-                        lastSelectFields = stmtFields
-                            .filter((f: any) => f && typeof f.name === 'string')
-                            .map((f: any) => f.name);
+                    const stmtFields = fields ? (fields as any[])[i] : undefined;
+
+                    if (Array.isArray(stmtRows)) {
+                        const fieldNames = Array.isArray(stmtFields)
+                            ? stmtFields.filter((f: any) => f && typeof f.name === 'string').map((f: any) => f.name)
+                            : (stmtRows.length > 0 ? Object.keys(stmtRows[0]) : []);
+                        statementResults.push({
+                            rows: stmtRows,
+                            fields: fieldNames,
+                            isTable: true
+                        });
+                    } else if (stmtRows && typeof stmtRows === 'object') {
+                        const affected = stmtRows.affectedRows ?? 0;
+                        const changed = stmtRows.changedRows ?? 0;
+                        const msg = stmtRows.message
+                            || (stmtRows.affectedRows !== undefined
+                                ? `Query OK. Affected rows: ${affected}, Changed: ${changed}`
+                                : 'Query executed successfully.');
+                        statementResults.push({
+                            rows: stmtRows,
+                            message: msg,
+                            isTable: false
+                        });
+                    } else {
+                        statementResults.push({
+                            message: 'Query executed successfully.',
+                            isTable: false
+                        });
                     }
                 }
 
-                if (lastSelectRows !== null) {
-                    return {
-                        rows: lastSelectRows,
-                        fields: lastSelectFields && lastSelectFields.length > 0
-                            ? lastSelectFields
-                            : (lastSelectRows.length > 0 ? Object.keys(lastSelectRows[0]) : [])
-                    };
-                }
-
-                // If no statement returned rows (e.g. DROP TABLE ...; DROP DATABASE ...; or multiple INSERTs)
-                const totalAffected = (rows as any[]).reduce((sum: number, r: any) => sum + (r?.affectedRows ?? 0), 0);
-                const totalChanged = (rows as any[]).reduce((sum: number, r: any) => sum + (r?.changedRows ?? 0), 0);
                 return {
-                    rows: {
-                        affectedRows: totalAffected,
-                        changedRows: totalChanged,
-                        message: `Query OK. Affected rows: ${totalAffected}, Changed: ${totalChanged}`
-                    }
+                    results: statementResults
                 };
             }
 
