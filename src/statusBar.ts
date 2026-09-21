@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ConnectionManager } from './connectionManager';
+import { NOTEBOOK_COMMANDS } from './config';
 
 /**
  * Status bar item showing current database connection status.
@@ -17,7 +18,7 @@ export class StatusBarManager implements vscode.Disposable {
             100
         );
 
-        this.statusBarItem.command = 'anyinb.configureConnection';
+        this.statusBarItem.command = NOTEBOOK_COMMANDS.configureConnection;
         this.statusBarItem.tooltip = 'AnyINB — Click to configure database connection';
 
         this.update();

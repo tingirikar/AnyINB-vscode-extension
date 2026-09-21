@@ -4,14 +4,13 @@ import { AnyInbController } from './controller';
 import { ConnectionManager } from './connectionManager';
 import { StatusBarManager } from './statusBar';
 import { MockServer } from './mockServer';
+import { NOTEBOOK_COMMANDS, NOTEBOOK_TYPE } from './config';
 
 let controller: AnyInbController;
 let connectionManager: ConnectionManager;
 let statusBarManager: StatusBarManager;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('AnyINB — Universal Interactive Notebook is now active!');
-
     // Initialize connection manager
     connectionManager = ConnectionManager.getInstance(context);
 
@@ -21,7 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register notebook serializer
     context.subscriptions.push(
         vscode.workspace.registerNotebookSerializer(
-            'anyinb',
+            NOTEBOOK_TYPE,
             new QueryNotebookSerializer(),
             { transientOutputs: false }
         )
@@ -34,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
     // ─── Commands ──────────────────────────────────────────────
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.configureConnection', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.configureConnection, async () => {
             await connectionManager.configureConnection();
             statusBarManager.update();
         })
@@ -43,7 +42,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Quick connect — triggered from the "⚡ Quick Connect" button in cell output.
     // Skips the DB type picker and auto-re-executes the pending cell after connecting.
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.quickConnect', async (dbType: string) => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.quickConnect, async (dbType: string) => {
             const success = await connectionManager.quickConnect(dbType);
             statusBarManager.update();
             if (success) {
@@ -53,7 +52,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.disconnectAll', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.disconnectAll, async () => {
             await connectionManager.disconnectAll();
             statusBarManager.update();
             vscode.window.showInformationMessage('All database connections closed.');
@@ -61,7 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.selectTheme', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.selectTheme, async () => {
             const current = vscode.workspace.getConfiguration('anyinb').get<string>('outputTheme', 'mongosh-terminal');
             const pick = await vscode.window.showQuickPick([
                 { label: '🐚 mongosh Terminal', description: 'Authentic terminal: black background, green strings, white keys', value: 'mongosh-terminal' },
@@ -82,13 +81,13 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.newNotebook', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.newNotebook, async () => {
             const newNotebook = await vscode.workspace.openNotebookDocument(
                 'anyinb',
                 new vscode.NotebookData([
                     new vscode.NotebookCellData(
                         vscode.NotebookCellKind.Markup,
-                        '# 🚀 AnyINB — Universal Interactive Notebook\n\nPractice **any language** right here. Change the cell language and hit ▶️ to run.\n\n| Language | Type |\n|----------|------|\n| SQL | MySQL queries |\n| JavaScript | MongoDB / Node.js |\n| Python | Scripts |\n| Go, Rust, Java, C, C++ | Compiled languages |\n| Bash, PowerShell | Shell commands |\n| HTTP | REST API requests |\n\n> 💡 For databases: `Ctrl+Shift+P` → **AnyINB: Configure Database Connection**',
+                        '# 🚀 AnyINB Notebook\n\nA lightweight notebook for Python, JavaScript, SQL, HTTP, shell, and database experiments in one place.\n\n| Workflow | Example |\n|----------|---------|\n| Python | local scripts and REPL state |\n| JavaScript | quick runtime experiments |\n| SQL | MySQL, Postgres, SQLite, MongoDB |\n| HTTP | REST and GraphQL requests |\n| Shell | Bash, PowerShell, and WSL |\n\n> 💡 For databases: `Ctrl+Shift+P` → **AnyINB: Configure Database Connection**',
                         'markdown'
                     ),
                     new vscode.NotebookCellData(
@@ -118,14 +117,14 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.enableSandbox', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.enableSandbox, async () => {
             await vscode.workspace.getConfiguration('anyinb').update('useSandboxIfDisconnected', true, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage('🧪 In-Memory Sandbox Mode is now ACTIVE. You can run SQL and MongoDB queries with zero database setup!');
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('anyinb.startPresentation', async () => {
+        vscode.commands.registerCommand(NOTEBOOK_COMMANDS.startPresentation, async () => {
             const editor = vscode.window.activeNotebookEditor;
             if (!editor) {
                 vscode.window.showWarningMessage('Open an AnyINB notebook first to start presentation mode.');

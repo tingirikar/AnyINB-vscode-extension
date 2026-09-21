@@ -58,7 +58,7 @@ const STYLES = `<style>
 
 // ─── Table (SQL & Tabular Data) ─────────────────────────────────
 
-export function renderTable(rows: Record<string, any>[], fields: string[], elapsedMs: number, dbType: string, queryText?: string): string {
+export function renderTable(rows: Record<string, any>[], fields: string[], elapsedMs: number, dbType: string, _queryText?: string): string {
     const config = getRendererConfig();
     if (!fields?.length) {
         if (rows.length) fields = Object.keys(rows[0]);
@@ -90,6 +90,7 @@ export function renderTable(rows: Record<string, any>[], fields: string[], elaps
 export function renderJson(data: any, elapsedMs: number, source: string): string {
     const config = getRendererConfig();
     DataContext.getInstance().setLastResult({ rawJson: data, source });
+    void elapsedMs;
 
     return `${STYLES}
 <div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;--qnb-max-height:${config.maxHeight > 0 ? config.maxHeight + 'px' : 'none'};">
@@ -99,12 +100,12 @@ export function renderJson(data: any, elapsedMs: number, source: string): string
 
 // ─── Success & Error Monospace Text ─────────────────────────────
 
-export function renderSuccess(message: string, elapsedMs: number, source: string): string {
+export function renderSuccess(message: string, _elapsedMs: number, _source: string): string {
     const config = getRendererConfig();
     return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:var(--qnb-str);">${esc(message)}</div></div>`;
 }
 
-export function renderError(message: string, source?: string): string {
+export function renderError(message: string, _source?: string): string {
     const config = getRendererConfig();
     return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:#f48771;">${esc(message)}</div></div>`;
 }
@@ -129,7 +130,7 @@ export function renderHttpResponse(result: HttpResult): string {
     return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div style="color:${stCol};font-weight:600;margin-bottom:2px;">${result.status} ${esc(result.statusText)}</div><div class="qnb-mongosh">${body}</div></div>`;
 }
 
-export function renderMockEndpointCreated(method: string, endpointUrl: string, elapsedMs: number): string {
+export function renderMockEndpointCreated(method: string, endpointUrl: string, _elapsedMs: number): string {
     const config = getRendererConfig();
     return `${STYLES}<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;"><div class="qnb-mongosh" style="color:var(--qnb-str);">⚡ Mock API Active: <code>${method} ${endpointUrl}</code></div></div>`;
 }

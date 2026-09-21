@@ -18,31 +18,37 @@ import {
 import { DataContext } from './dataContext';
 import { MockServer } from './mockServer';
 import { SandboxExecutor } from './executors/sandboxExecutor';
+import {
+    ALL_SUPPORTED_LANGUAGES,
+    HTTP_LANGUAGES,
+    NOTEBOOK_CONTROLLER_ID,
+    NOTEBOOK_LABEL,
+    NOTEBOOK_TYPE,
+    PROCESS_LANGUAGES,
+    SHELL_LANGUAGES,
+} from './config';
 
-// All languages the controller can handle
-const DATABASE_LANGUAGES = ['sql', 'javascript', 'postgres', 'sqlite', 'redis', 'mongodb', 'mongosh'];
-const PROCESS_LANGUAGES = Object.keys(LANGUAGE_CONFIGS);
-const SHELL_LANGUAGES = ['shellscript', 'powershell', 'bat', 'cmd', 'wsl', 'bash'];
-const HTTP_LANGUAGES = ['http'];
+export function normalizePythonMagicCommand(code: string): { command: string; shellType: 'bash' | 'powershell' } {
+    const cleanCmd = code
+        .replace(/^\s*%pip\s+/i, 'python -m pip ')
+        .replace(/^\s*!pip\s+/i, 'python -m pip ')
+        .replace(/^\s*%conda\s+/i, 'conda ')
+        .replace(/^\s*!\s*/, '');
 
-const ALL_SUPPORTED_LANGUAGES = [
-    ...new Set([
-        ...DATABASE_LANGUAGES,
-        ...PROCESS_LANGUAGES,
-        ...SHELL_LANGUAGES,
-        ...HTTP_LANGUAGES,
-        'markdown',
-    ])
-];
+    return {
+        command: cleanCmd.trim(),
+        shellType: process.platform === 'win32' ? 'powershell' : 'bash',
+    };
+}
 
 /**
  * AnyINB NotebookController — the brain of the extension.
  * Routes cell execution to the appropriate executor based on language.
  */
 export class AnyInbController {
-    readonly controllerId = 'anyinb-controller';
-    readonly notebookType = 'anyinb';
-    readonly label = 'AnyINB';
+    readonly controllerId = NOTEBOOK_CONTROLLER_ID;
+    readonly notebookType = NOTEBOOK_TYPE;
+    readonly label = NOTEBOOK_LABEL;
 
     private readonly _controller: vscode.NotebookController;
     private _executionOrder = 0;
@@ -515,7 +521,7 @@ export class AnyInbController {
         };
 
         const result = await this.processExecutor.execute(code, language, 30000, inputProvider);
-        const elapsed = Date.now() - startTime;
+        void startTime;
 
         if (result.error) {
             this._outputHtml(execution,
@@ -577,13 +583,10 @@ export class AnyInbController {
         code: string,
         language: string
     ): Promise<void> {
-        // Support Jupyter shell magics (%pip install ..., !pip install ..., !dir, etc.)
+        // Support Jupyter-style shell magics such as %pip install ..., !pip install ..., !dir, etc.
         if (language === 'python' && /^\s*(!|%pip|%conda)\s*(.*)/i.test(code)) {
-            const cleanCmd = code.replace(/^\s*%pip\s+/i, 'python -m pip ')
-                                 .replace(/^\s*!pip\s+/i, 'python -m pip ')
-                                 .replace(/^\s*%conda\s+/i, 'conda ')
-                                 .replace(/^\s*!\s*/, '');
-            await this._executeShell(execution, cleanCmd, 'bat');
+            const { command, shellType } = normalizePythonMagicCommand(code);
+            await this._executeShell(execution, command, shellType);
             return;
         }
 

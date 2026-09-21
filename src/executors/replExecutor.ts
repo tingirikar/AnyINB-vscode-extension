@@ -1,6 +1,5 @@
 import * as cp from 'child_process';
 import * as vscode from 'vscode';
-import * as os from 'os';
 
 export interface ReplResult {
     stdout: string;
@@ -177,7 +176,7 @@ except Exception:
                 }
                 
                 proc.stdin?.write(wrappedCode);
-            } catch (err) {
+            } catch {
                 finish({ stdout: '', stderr: '', error: 'Failed to write to REPL' });
             }
         });
@@ -318,7 +317,7 @@ except Exception:
     }
     
     killAll() {
-        for (const [key, proc] of this.processes.entries()) {
+        for (const [, proc] of this.processes.entries()) {
             proc.kill('SIGKILL');
         }
         this.processes.clear();

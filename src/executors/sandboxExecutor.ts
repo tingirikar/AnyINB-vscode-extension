@@ -98,8 +98,11 @@ export class SandboxExecutor {
             }
             if (op === 'insertOne') {
                 try {
-                    let doc = eval(`(${argsRaw || '{}'})`);
-                    doc._id = doc._id || Math.random().toString(16).substring(2, 26).padEnd(24, '0');
+                    const parsedDoc = this._parseDocument(argsRaw || '{}');
+                    const doc = {
+                        ...parsedDoc,
+                        _id: parsedDoc._id || Math.random().toString(16).substring(2, 26).padEnd(24, '0')
+                    };
                     col.push(doc);
                     return { acknowledged: true, insertedId: doc._id };
                 } catch {
@@ -109,5 +112,17 @@ export class SandboxExecutor {
         }
 
         return Array.from(this.mongoCollections.entries()).map(([k, v]) => ({ collection: k, count: v.length }));
+    }
+
+    private _parseDocument(payload: string): Record<string, any> {
+        const value = payload.trim();
+        if (!value) return {};
+
+        try {
+            const parsed = JSON.parse(value);
+            return typeof parsed === 'object' && parsed !== null ? parsed : {};
+        } catch {
+            return {};
+        }
     }
 }

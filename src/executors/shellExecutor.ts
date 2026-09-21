@@ -21,7 +21,7 @@ export class ShellExecutor {
         code: string,
         shellType: 'shellscript' | 'powershell' | 'bat' | 'cmd' | 'wsl' | 'bash',
         timeout: number = 30000,
-        inputProvider?: (prompt?: string) => Promise<string | undefined>
+        _inputProvider?: (prompt?: string) => Promise<string | undefined>
     ): Promise<ShellResult> {
         const isWindows = os.platform() === 'win32';
 
@@ -70,17 +70,13 @@ export class ShellExecutor {
             let stdout = '';
             let stderr = '';
             let killed = false;
-            let exited = false;
-            let lastOutputTime = Date.now();
 
             proc.stdout.on('data', (data) => {
                 stdout += data.toString();
-                lastOutputTime = Date.now();
             });
 
             proc.stderr.on('data', (data) => {
                 stderr += data.toString();
-                lastOutputTime = Date.now();
             });
 
             const timer = setTimeout(() => {
@@ -89,7 +85,6 @@ export class ShellExecutor {
             }, timeout);
 
             proc.on('error', (err) => {
-                exited = true;
                 clearTimeout(timer);
                 resolve({
                     stdout,
@@ -100,7 +95,6 @@ export class ShellExecutor {
             });
 
             proc.on('close', (exitCode) => {
-                exited = true;
                 clearTimeout(timer);
                 if (killed) {
                     resolve({
