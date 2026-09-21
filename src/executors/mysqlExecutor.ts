@@ -82,9 +82,16 @@ export class MySqlExecutor {
                 this.currentDatabase = null;
             }
 
+            // In MySQL, comments starting with `--` require a space or control character after the 2nd dash.
+            // Queries with `--- comment` or `----------------` divider lines cause ER_PARSE_ERROR in MySQL.
+            // Normalize them so 3+ dashes followed by whitespace or standalone divider lines are valid MySQL comments.
+            const normalizedQuery = query
+                .replace(/^(\s*)--{2,}\s*$/gm, '$1-- ')
+                .replace(/--{2,}(\s+.*)$/gm, '-- $1');
+
             // Use pool.query() instead of pool.execute() so statements like SHOW TABLES,
             // DESCRIBE, EXPLAIN, and multi-statements are supported.
-            const [rows, fields] = await this.pool.query(query);
+            const [rows, fields] = await this.pool.query(normalizedQuery);
 
             // If the query was purely a USE command
             if (cleanQuery.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i)) {

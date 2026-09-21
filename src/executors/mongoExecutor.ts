@@ -166,33 +166,44 @@ export class MongoExecutor {
                         return __results;
                     `;
 
-                    const fn = new AsyncFunction(
-                        'db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp',
-                        '__switchDb', '__showDbs', '__showCollections', '__getVersion',
-                        transformedCode
-                    );
-                    const rawResults = await fn(
-                        dbProxy, this.client,
-                        BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
-                        BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp,
-                        __switchDb, __showDbs, __showCollections, __getVersion
-                    );
-
-                    if (Array.isArray(rawResults)) {
-                        const formattedResults: any[] = [];
-                        for (let i = 0; i < rawResults.length; i++) {
-                            const formatted = await this._formatOneResult(rawResults[i], statements[i] || '');
-                            if (formatted !== undefined) {
-                                formattedResults.push(formatted);
-                            }
-                        }
-                        return {
-                            results: formattedResults,
-                            data: formattedResults.length > 0 ? formattedResults[formattedResults.length - 1] : undefined
-                        };
+                    let fn: any;
+                    try {
+                        fn = new AsyncFunction(
+                            'db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp',
+                            '__switchDb', '__showDbs', '__showCollections', '__getVersion',
+                            transformedCode
+                        );
+                    } catch {
+                        // Syntax error preparing multi-statement function — fall through
                     }
-                } catch {
-                    // If multi-statement wrapping fails, fall through to default execution
+
+                    if (fn) {
+                        const rawResults = await fn(
+                            dbProxy, this.client,
+                            BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
+                            BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp,
+                            __switchDb, __showDbs, __showCollections, __getVersion
+                        );
+
+                        if (Array.isArray(rawResults)) {
+                            const formattedResults: any[] = [];
+                            for (let i = 0; i < rawResults.length; i++) {
+                                const formatted = await this._formatOneResult(rawResults[i], statements[i] || '');
+                                if (formatted !== undefined) {
+                                    formattedResults.push(formatted);
+                                }
+                            }
+                            return {
+                                results: formattedResults,
+                                data: formattedResults.length > 0 ? formattedResults[formattedResults.length - 1] : undefined
+                            };
+                        }
+                    }
+                } catch (err: any) {
+                    // Re-throw genuine MongoDB or JavaScript runtime execution errors
+                    return {
+                        error: `${err.name || 'MongoError'}: ${err.message}`
+                    };
                 }
             }
 
@@ -207,21 +218,19 @@ export class MongoExecutor {
                     BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
                 );
             } else {
+                const cleanTranslated = translatedCode.trim().replace(/;+$/, '');
+                let fn: any;
                 try {
-                    const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', `return (${translatedCode});`);
-                    result = await fn(
-                        dbProxy, this.client,
-                        BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
-                        BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
-                    );
+                    fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', `return (${cleanTranslated});`);
                 } catch {
-                    const fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', translatedCode);
-                    result = await fn(
-                        dbProxy, this.client,
-                        BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
-                        BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
-                    );
+                    fn = new AsyncFunction('db', 'client', 'ObjectId', 'Binary', 'Int32', 'Long', 'Double', 'Decimal128', 'Timestamp', translatedCode);
                 }
+
+                result = await fn(
+                    dbProxy, this.client,
+                    BSON_TYPES.ObjectId, BSON_TYPES.Binary, BSON_TYPES.Int32,
+                    BSON_TYPES.Long, BSON_TYPES.Double, BSON_TYPES.Decimal128, BSON_TYPES.Timestamp
+                );
             }
 
             const formatted = await this._formatOneResult(result, code);
