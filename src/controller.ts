@@ -119,13 +119,15 @@ export class AnyInbController {
             return;
         }
 
-        // Smart Auto-Detect: Auto-switch language mode if code matches a specific language signature
-        const detectedLang = this._detectLanguage(code, language);
-        if (detectedLang && detectedLang !== language) {
-            try {
-                await vscode.languages.setTextDocumentLanguage(cell.document, detectedLang);
-                language = detectedLang;
-            } catch {}
+        // Smart Auto-Detect: Only auto-switch language if cell is unassigned or plaintext
+        if (!language || language === 'plaintext') {
+            const detectedLang = this._detectLanguage(code, language);
+            if (detectedLang && detectedLang !== language) {
+                try {
+                    await vscode.languages.setTextDocumentLanguage(cell.document, detectedLang);
+                    language = detectedLang;
+                } catch {}
+            }
         }
 
         // Feature: Live Mock API Server inside Notebook
@@ -155,7 +157,7 @@ export class AnyInbController {
                 await this._executeSqlite(execution, code, cell);
             } else if (language === 'redis') {
                 await this._executeRedis(execution, code, cell);
-            } else if (language === 'mongodb' || language === 'mongosh' || this._looksLikeMongo(code)) {
+            } else if (language === 'mongodb' || language === 'mongosh') {
                 await this._executeMongo(execution, code, cell);
             } else if (language === 'graphql') {
                 await this._executeGraphql(execution, code);
@@ -195,15 +197,9 @@ export class AnyInbController {
         const trimmed = code.trim();
         if (!trimmed) return currentLanguage;
 
-        // If the user already chose a database or SQL language, keep it unless code matches another paradigm
+        // If the user already chose a database or SQL language, keep it
         const sqlDialects = ['mysql', 'postgres', 'sqlite', 'sql'];
         if (sqlDialects.includes(currentLanguage.toLowerCase())) {
-            if (this._looksLikeMongo(trimmed)) {
-                return 'mongodb';
-            }
-            if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+https?:\/\//i.test(trimmed)) {
-                return 'http';
-            }
             return currentLanguage;
         }
 
@@ -269,7 +265,7 @@ export class AnyInbController {
      */
     private _looksLikeMongo(code: string): boolean {
         const trimmed = code.trim();
-        if (/^(show\s+(dbs|databases|collections|tables|users)|use\s+\S+|mongosh\b)/i.test(trimmed)) {
+        if (/^(show\s+(dbs|collections)|mongosh\b)/i.test(trimmed)) {
             return true;
         }
         return /\bdb\s*(\.|\bcollection\b|\[)|\bObjectId\s*\(|\bBinary\s*\(|\bDecimal128\s*\(|\bISODate\s*\(/.test(code);
