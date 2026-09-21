@@ -29,7 +29,11 @@ export class ConnectionManager {
     getSqliteExecutor(): SqliteExecutor { return this.sqliteExecutor; }
     getRedisExecutor(): RedisExecutor { return this.redisExecutor; }
 
-    getMySqlStatus(): string { return this.mysqlExecutor.isConnected() ? 'MySQL: Connected' : ''; }
+    getMySqlStatus(): string {
+        if (!this.mysqlExecutor.isConnected()) return '';
+        const db = this.mysqlExecutor.getCurrentDatabase();
+        return db ? `MySQL: Connected (${db})` : 'MySQL: Connected';
+    }
     getMongoStatus(): string { return this.mongoExecutor.isConnected() ? `MongoDB: ${this.mongoExecutor.getConfig()?.database || 'Connected'}` : ''; }
     getPostgresStatus(): string { return this.postgresExecutor.isConnected() ? 'PostgreSQL: Connected' : ''; }
     getSqliteStatus(): string { return this.sqliteExecutor.isConnected() ? 'SQLite: Connected' : ''; }
@@ -85,13 +89,11 @@ export class ConnectionManager {
         if (!user) return false;
         const password = await this._prompt('MySQL — Password', 'Enter password', '', true);
         if (password === undefined) return false;
-        const database = await this._prompt('MySQL — Database', 'Enter database name', saved.database || '');
-        if (!database) return false;
 
-        const config: MySqlConfig = { host, port: Number(portStr), user, password, database };
-        return this._runConnect('🐬 Connecting to MySQL...', `🐬 Connected to MySQL: ${host}:${portStr}/${database}`, async () => {
+        const config: MySqlConfig = { host, port: Number(portStr), user, password };
+        return this._runConnect('🐬 Connecting to MySQL...', `🐬 Connected to MySQL: ${host}:${portStr}`, async () => {
             await this.mysqlExecutor.connect(config);
-            await this.context.globalState.update('mysql.config', { host, port: config.port, user, database });
+            await this.context.globalState.update('mysql.config', { host, port: config.port, user });
             await this.context.secrets.store('mysql.password', password);
         });
     }
@@ -100,11 +102,9 @@ export class ConnectionManager {
         const saved = this.context.globalState.get<Partial<MongoConfig>>('mongo.config', {});
         const connectionString = await this._prompt('MongoDB — URI', 'Enter connection string', saved.connectionString || 'mongodb://localhost:27017');
         if (!connectionString) return false;
-        const database = await this._prompt('MongoDB — Database', 'Enter database name', saved.database || 'test');
-        if (!database) return false;
 
-        const config: MongoConfig = { connectionString, database };
-        return this._runConnect('🍃 Connecting to MongoDB...', `🍃 Connected to MongoDB: ${database}`, async () => {
+        const config: MongoConfig = { connectionString, database: saved.database || 'test' };
+        return this._runConnect('🍃 Connecting to MongoDB...', `🍃 Connected to MongoDB`, async () => {
             await this.mongoExecutor.connect(config);
             await this.context.globalState.update('mongo.config', config);
         });

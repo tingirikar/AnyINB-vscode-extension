@@ -7,7 +7,7 @@ export interface MongoResult {
 
 export interface MongoConfig {
     connectionString: string;
-    database: string;
+    database?: string;
 }
 
 // Bundle BSON types so user code can reference them (e.g. new ObjectId(...))
@@ -42,10 +42,10 @@ export class MongoExecutor {
         this.config = config;
         this.client = new MongoClient(config.connectionString);
         await this.client.connect();
-        this.db = this.client.db(config.database);
+        this.db = this.client.db(config.database || 'test');
 
         // Test connection
-        await this.db.command({ ping: 1 });
+        await this.client.db('admin').command({ ping: 1 });
     }
 
     async execute(code: string): Promise<MongoResult> {

@@ -313,9 +313,10 @@ export class AnyInbController {
             html = renderTable(res.rows, res.fields || Object.keys(res.rows[0]), elapsed, dbName, query);
         } else if (res.rows && typeof res.rows === 'object' && !Array.isArray(res.rows)) {
             const info = res.rows as any;
-            const msg = (info.affectedRows !== undefined || info.changedRows !== undefined)
-                ? `Query OK. Affected rows: ${info.affectedRows ?? 0}, Changed: ${info.changedRows ?? 0}`
-                : 'Query executed successfully.';
+            const msg = info.message
+                || ((info.affectedRows !== undefined || info.changedRows !== undefined)
+                    ? `Query OK. Affected rows: ${info.affectedRows ?? 0}, Changed: ${info.changedRows ?? 0}`
+                    : 'Query executed successfully.');
             html = renderSuccess(msg, elapsed, dbName);
         } else {
             html = renderSuccess('Query executed successfully.', elapsed, dbName);

@@ -11,16 +11,17 @@ export interface MySqlConfig {
     port: number;
     user: string;
     password: string;
-    database: string;
+    database?: string;
 }
 
 /**
  * MySQL query executor using mysql2/promise.
- * Manages a connection pool for efficient query execution.
+ * Uses a dedicated connection pool and tracks active database when `USE <db>` is executed.
  */
 export class MySqlExecutor {
     private pool: mysql.Pool | null = null;
     private config: MySqlConfig | null = null;
+    private currentDatabase: string | null = null;
 
     async connect(config: MySqlConfig): Promise<void> {
         // Close existing pool if any
@@ -29,18 +30,24 @@ export class MySqlExecutor {
         }
 
         this.config = config;
+        this.currentDatabase = config.database || null;
 
-        this.pool = mysql.createPool({
+        const poolOptions: mysql.PoolOptions = {
             host: config.host,
             port: config.port,
             user: config.user,
             password: config.password,
-            database: config.database,
             waitForConnections: true,
-            connectionLimit: 5,
+            connectionLimit: 1,
             queueLimit: 0,
             multipleStatements: true
-        });
+        };
+
+        if (config.database) {
+            poolOptions.database = config.database;
+        }
+
+        this.pool = mysql.createPool(poolOptions);
 
         // Test the connection
         const connection = await this.pool.getConnection();
@@ -53,9 +60,23 @@ export class MySqlExecutor {
         }
 
         try {
+            const trimmed = query.trim();
+            const useMatch = trimmed.match(/^use\s+[`"']?([a-zA-Z0-9_$]+)[`"']?\s*;?$/i);
+            if (useMatch) {
+                this.currentDatabase = useMatch[1];
+            }
+
             // Use pool.query() instead of pool.execute() so statements like SHOW TABLES,
             // DESCRIBE, EXPLAIN, and multi-statements are supported.
             const [rows, fields] = await this.pool.query(query);
+
+            if (useMatch) {
+                return {
+                    rows: {
+                        message: `Database changed to '${useMatch[1]}'`
+                    }
+                };
+            }
 
             // For SELECT/SHOW/DESCRIBE queries, rows is an array and fields contains column metadata
             if (Array.isArray(rows) && fields && Array.isArray(fields)) {
@@ -77,6 +98,7 @@ export class MySqlExecutor {
             await this.pool.end();
             this.pool = null;
         }
+        this.currentDatabase = null;
     }
 
     isConnected(): boolean {
@@ -85,5 +107,9 @@ export class MySqlExecutor {
 
     getConfig(): MySqlConfig | null {
         return this.config;
+    }
+
+    getCurrentDatabase(): string | null {
+        return this.currentDatabase;
     }
 }
