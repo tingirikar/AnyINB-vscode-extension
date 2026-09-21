@@ -22,6 +22,10 @@ export class ConnectionManager {
 
     private constructor(private context: vscode.ExtensionContext) {}
 
+    notifyConnectionChanged(): void {
+        this._onDidChangeConnection.fire();
+    }
+
     static getInstance(context: vscode.ExtensionContext): ConnectionManager {
         return (ConnectionManager.instance ??= new ConnectionManager(context));
     }

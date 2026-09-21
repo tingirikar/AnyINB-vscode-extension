@@ -163,20 +163,33 @@ function getObjectIdString(v: any): string {
     return String(v);
 }
 
-function mongoshFormatValue(val: any, indent = 0, parentKey?: string): string {
+function mongoshFormatValue(val: any, indent = 0, parentKey?: string, seen = new WeakSet<object>()): string {
     const pad = '  '.repeat(indent), padInner = '  '.repeat(indent + 1);
     if (val === null || val === undefined) return `<span class="mongosh-null">null</span>`;
     if (typeof val === 'boolean') return `<span class="mongosh-bool">${val}</span>`;
     if (typeof val === 'number' || typeof val === 'bigint') return `<span class="mongosh-num">${val}</span>`;
+
+    if (val !== null && typeof val === 'object') {
+        if (seen.has(val)) {
+            return `<span class="mongosh-null">[Circular]</span>`;
+        }
+        if (indent > 15) {
+            return `<span class="mongosh-null">[Max Depth]</span>`;
+        }
+        seen.add(val);
+    }
+
     if (isObjectId(val) || (parentKey === '_id' && typeof val === 'string' && /^[a-f0-9]{24}$/i.test(val))) {
         return `ObjectId('<span class="mongosh-str">${esc(getObjectIdString(val))}</span>')`;
     }
     if (val._bsontype === 'Decimal128' || val._bsontype === 'Long') return `${val._bsontype}('<span class="mongosh-str">${esc(val.toString())}</span>')`;
     if (val._bsontype === 'Int32') return `NumberInt(<span class="mongosh-num">${val.value ?? val}</span>)`;
     if (val._bsontype === 'Timestamp') return `Timestamp({ t: ${val.t ?? 0}, i: ${val.i ?? 0} })`;
-    if (val._bsontype === 'Binary' || Buffer.isBuffer(val) || val.sub_type !== undefined) {
+    if (val._bsontype === 'Binary' || Buffer.isBuffer(val) || (val.sub_type !== undefined && (val.buffer || Buffer.isBuffer(val.value)))) {
+        const buf = Buffer.isBuffer(val) ? val : (val.buffer || val.value);
         if (val.sub_type === 4 && (val.buffer || val.id)) return `UUID('<span class="mongosh-str">${esc(getObjectIdString(val.buffer || val.id))}</span>')`;
-        return `Binary.createFromBase64('<span class="mongosh-str">${esc(val.toString ? val.toString('base64') : '')}</span>')`;
+        const base64Str = Buffer.isBuffer(buf) ? buf.toString('base64') : (typeof val.toString === 'function' && val.toString !== Object.prototype.toString ? val.toString('base64') : '');
+        return `Binary.createFromBase64('<span class="mongosh-str">${esc(base64Str)}</span>')`;
     }
     if (val instanceof Date) return `ISODate('<span class="mongosh-str">${esc(val.toISOString())}</span>')`;
     if (typeof val === 'string') {
@@ -185,14 +198,25 @@ function mongoshFormatValue(val: any, indent = 0, parentKey?: string): string {
     }
     if (Array.isArray(val)) {
         if (!val.length) return `[]`;
-        return `[\n${val.map(v => `${padInner}${mongoshFormatValue(v, indent + 1)}`).join(',\n')}\n${pad}]`;
+        return `[\n${val.map(v => `${padInner}${mongoshFormatValue(v, indent + 1, undefined, seen)}`).join(',\n')}\n${pad}]`;
     }
     if (typeof val === 'object') {
-        const keys = Object.keys(val);
+        let keys: string[] = [];
+        try {
+            keys = Object.keys(val);
+        } catch {
+            return esc(String(val));
+        }
         if (!keys.length) return `{}`;
         const entries = keys.map(k => {
             const keyDisplay = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k) ? esc(k) : `'${esc(k)}'`;
-            return `${padInner}<span class="mongosh-key">${keyDisplay}</span>: ${mongoshFormatValue(val[k], indent + 1, k)}`;
+            let childVal: any;
+            try {
+                childVal = val[k];
+            } catch (e: any) {
+                childVal = `[Error: ${e.message}]`;
+            }
+            return `${padInner}<span class="mongosh-key">${keyDisplay}</span>: ${mongoshFormatValue(childVal, indent + 1, k, seen)}`;
         }).join(',\n');
         return `{\n${entries}\n${pad}}`;
     }

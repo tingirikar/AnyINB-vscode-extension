@@ -60,31 +60,90 @@ export class MySqlExecutor {
         }
 
         try {
-            const trimmed = query.trim();
-            const useMatch = trimmed.match(/^use\s+[`"']?([a-zA-Z0-9_$]+)[`"']?\s*;?$/i);
-            if (useMatch) {
-                this.currentDatabase = useMatch[1];
+            const cleanQuery = query.replace(/--.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+
+            // Track USE <db> statements to update active database
+            const useMatches = [...cleanQuery.matchAll(/\buse\s+[`"']?([^;\s'"`]+)[`"']?/gi)];
+            if (useMatches.length > 0) {
+                this.currentDatabase = useMatches[useMatches.length - 1][1];
+            }
+
+            // If a database is dropped, clear currentDatabase if it matches
+            const dropDbMatch = cleanQuery.match(/\bdrop\s+(?:database|schema)\s+[`"']?([^;\s'"`]+)[`"']?/i);
+            if (dropDbMatch && this.currentDatabase && dropDbMatch[1].toLowerCase() === this.currentDatabase.toLowerCase()) {
+                this.currentDatabase = null;
             }
 
             // Use pool.query() instead of pool.execute() so statements like SHOW TABLES,
             // DESCRIBE, EXPLAIN, and multi-statements are supported.
             const [rows, fields] = await this.pool.query(query);
 
-            if (useMatch) {
+            // If the query was purely a USE command
+            if (cleanQuery.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i)) {
                 return {
                     rows: {
-                        message: `Database changed to '${useMatch[1]}'`
+                        message: `Database changed to '${this.currentDatabase}'`
                     }
                 };
             }
 
-            // For SELECT/SHOW/DESCRIBE queries, rows is an array and fields contains column metadata
+            // Check if this was a multi-statement result
+            // In mysql2 with multipleStatements: true:
+            // - If multi-statement, `rows` is an Array of each statement's result.
+            // - `fields` is an Array of each statement's fields (or undefined for non-SELECT statements).
+            const isMultiStatement = Array.isArray(rows) && Array.isArray(fields) && (
+                fields.length === 0 ||
+                fields[0] === undefined ||
+                Array.isArray(fields[0]) ||
+                (rows.length > 0 && rows[0] && typeof rows[0] === 'object' && ('affectedRows' in rows[0] || rows[0].constructor?.name === 'ResultSetHeader'))
+            );
+
+            if (isMultiStatement) {
+                // Find if any statement was a SELECT returning tabular data
+                let lastSelectRows: any[] | null = null;
+                let lastSelectFields: string[] | null = null;
+
+                for (let i = 0; i < (rows as any[]).length; i++) {
+                    const stmtRows = (rows as any[])[i];
+                    const stmtFields = (fields as any[])[i];
+                    if (Array.isArray(stmtRows) && Array.isArray(stmtFields)) {
+                        lastSelectRows = stmtRows;
+                        lastSelectFields = stmtFields
+                            .filter((f: any) => f && typeof f.name === 'string')
+                            .map((f: any) => f.name);
+                    }
+                }
+
+                if (lastSelectRows !== null) {
+                    return {
+                        rows: lastSelectRows,
+                        fields: lastSelectFields && lastSelectFields.length > 0
+                            ? lastSelectFields
+                            : (lastSelectRows.length > 0 ? Object.keys(lastSelectRows[0]) : [])
+                    };
+                }
+
+                // If no statement returned rows (e.g. DROP TABLE ...; DROP DATABASE ...; or multiple INSERTs)
+                const totalAffected = (rows as any[]).reduce((sum: number, r: any) => sum + (r?.affectedRows ?? 0), 0);
+                const totalChanged = (rows as any[]).reduce((sum: number, r: any) => sum + (r?.changedRows ?? 0), 0);
+                return {
+                    rows: {
+                        affectedRows: totalAffected,
+                        changedRows: totalChanged,
+                        message: `Query OK. Affected rows: ${totalAffected}, Changed: ${totalChanged}`
+                    }
+                };
+            }
+
+            // Single SELECT / SHOW / DESCRIBE query
             if (Array.isArray(rows) && fields && Array.isArray(fields)) {
-                const fieldNames = (fields as any[]).map((f: any) => f.name);
+                const fieldNames = (fields as any[])
+                    .filter((f: any) => f && typeof f.name === 'string')
+                    .map((f: any) => f.name);
                 return { rows, fields: fieldNames };
             }
 
-            // For INSERT/UPDATE/DELETE, rows is an OkPacket/ResultSetHeader
+            // For single statement INSERT/UPDATE/DELETE/DDL, rows is a ResultSetHeader
             return { rows };
         } catch (err: any) {
             return {

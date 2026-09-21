@@ -49,13 +49,13 @@ export class PostgresExecutor {
                 const lastResult = result[result.length - 1];
                 return { 
                     rows: lastResult.rows, 
-                    fields: lastResult.fields?.map((f: any) => f.name)
+                    fields: lastResult.fields?.filter((f: any) => f && typeof f.name === 'string').map((f: any) => f.name)
                 };
             }
 
             return { 
                 rows: result.rows, 
-                fields: result.fields?.map((f: any) => f.name) 
+                fields: result.fields?.filter((f: any) => f && typeof f.name === 'string').map((f: any) => f.name) 
             };
         } catch (err: any) {
             return {

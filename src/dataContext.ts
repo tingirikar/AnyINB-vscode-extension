@@ -57,7 +57,20 @@ export class DataContext {
             return '';
         }
         const data = this.lastResult.rows || this.lastResult.rawJson;
-        const b64 = Buffer.from(JSON.stringify(data)).toString('base64');
+        let jsonStr = '[]';
+        try {
+            const seen = new WeakSet();
+            jsonStr = JSON.stringify(data, (_key, value) => {
+                if (typeof value === 'object' && value !== null) {
+                    if (seen.has(value)) return undefined;
+                    seen.add(value);
+                }
+                return value;
+            });
+        } catch {
+            jsonStr = '[]';
+        }
+        const b64 = Buffer.from(jsonStr).toString('base64');
         return `exec('import json, base64; globals()["IN"] = json.loads(base64.b64decode("${b64}").decode("utf-8"));\\ntry:\\n import pandas as _pd; globals()["IN"] = _pd.DataFrame(IN)\\nexcept Exception:\\n pass')`;
     }
 

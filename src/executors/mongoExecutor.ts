@@ -1,4 +1,4 @@
-import { MongoClient, Db, ObjectId, Binary, Int32, Long, Double, Decimal128, Timestamp } from 'mongodb';
+import { MongoClient, Db, Collection, AbstractCursor, FindCursor, ObjectId, Binary, Int32, Long, Double, Decimal128, Timestamp } from 'mongodb';
 
 export interface MongoResult {
     data?: any;
@@ -12,6 +12,17 @@ export interface MongoConfig {
 
 // Bundle BSON types so user code can reference them (e.g. new ObjectId(...))
 const BSON_TYPES = { ObjectId, Binary, Int32, Long, Double, Decimal128, Timestamp };
+
+// Monkey-patch cursor prototypes for mongosh compatibility
+if (AbstractCursor && (AbstractCursor as any).prototype && !(AbstractCursor as any).prototype.pretty) {
+    (AbstractCursor as any).prototype.pretty = function () { return this; };
+}
+if (FindCursor && (FindCursor as any).prototype && !(FindCursor as any).prototype.count) {
+    (FindCursor as any).prototype.count = async function () {
+        const docs = await this.toArray();
+        return docs.length;
+    };
+}
 
 /**
  * MongoDB query executor.
@@ -55,13 +66,15 @@ export class MongoExecutor {
 
         try {
             // Handle `use <database>` — switch db just like mongosh
-            const useMatch = code.trim().match(/^use\s+(\S+)\s*;?$/i);
+            const cleanCode = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+            const useMatch = cleanCode.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i);
             if (useMatch) {
                 const dbName = useMatch[1];
                 this.db = this.client.db(dbName);
-                if (this.config) {
-                    this.config.database = dbName;
+                if (!this.config) {
+                    this.config = { connectionString: 'mongodb://localhost:27017' };
                 }
+                this.config.database = dbName;
                 return { data: `switched to db ${dbName}` };
             }
 
@@ -104,6 +117,24 @@ export class MongoExecutor {
                 return { data: arr };
             }
 
+            // If evaluating `db`, return the current database name like in mongosh
+            if (result instanceof Db || (result && typeof result === 'object' && result.databaseName && typeof result.collection === 'function')) {
+                return { data: result.databaseName };
+            }
+
+            // If evaluating `client`
+            if (result instanceof MongoClient) {
+                return { data: `Connected to ${this.config?.connectionString || 'MongoDB'}` };
+            }
+
+            // If result is a Collection (e.g. db.createCollection("students") or evaluating db.students)
+            if (result instanceof Collection || (result && typeof result === 'object' && typeof result.collectionName === 'string' && typeof result.find === 'function')) {
+                if (/\bcreateCollection\b/.test(code)) {
+                    return { data: { ok: 1 } };
+                }
+                return { data: `${this.db?.databaseName || 'test'}.${result.collectionName}` };
+            }
+
             return { data: result };
         } catch (err: any) {
             return {
@@ -119,6 +150,23 @@ export class MongoExecutor {
         return new Proxy(db, {
             get(target: any, prop: string | symbol) {
                 if (typeof prop === 'string') {
+                    if (prop === 'getName') {
+                        return () => target.databaseName;
+                    }
+                    if (prop === 'getCollectionNames') {
+                        return async () => {
+                            const cols = await target.listCollections().toArray();
+                            return cols.map((c: any) => c.name);
+                        };
+                    }
+                    if (prop === 'getCollectionInfos') {
+                        return async (filter?: any) => {
+                            return await target.listCollections(filter).toArray();
+                        };
+                    }
+                    if (prop === 'getCollection') {
+                        return (name: string) => target.collection(name);
+                    }
                     if (prop === 'version') {
                         return async () => {
                             const info = await target.admin().serverInfo();
@@ -146,6 +194,11 @@ export class MongoExecutor {
     private _translateShellCommands(code: string): string {
         const trimmed = code.trim();
         const lower = trimmed.toLowerCase().replace(/;+$/, '').trim();
+
+        // typing just `db` (like in mongosh) outputs the current database name
+        if (lower === 'db' || lower === 'db.getname()' || lower === 'db.getname') {
+            return `return db.databaseName;`;
+        }
 
         // db.version() / version()
         if (lower === 'db.version()' || lower === 'version()') {

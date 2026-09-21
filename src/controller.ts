@@ -301,6 +301,7 @@ export class AnyInbController {
         const start = Date.now();
         const res = await executor.execute(query);
         const elapsed = Date.now() - start;
+        this.connectionManager.notifyConnectionChanged();
 
         if (res.error) {
             this._outputHtml(execution, renderError(res.error, dbName), false);
@@ -365,7 +366,7 @@ export class AnyInbController {
             }
 
             // If the user typed `use <database>`, switch db right away
-            const useMatch = cleanCode.match(/^use\s+(\S+)\s*;?$/i);
+            const useMatch = cleanCode.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i);
             if (useMatch) {
                 const dbName = useMatch[1];
                 const switchResult = await executor.execute(`use ${dbName}`);
@@ -374,6 +375,7 @@ export class AnyInbController {
                 } else {
                     this._outputConsole(execution, `switched to db ${dbName}`, '', true);
                 }
+                this.connectionManager.notifyConnectionChanged();
                 return;
             }
         }
@@ -381,6 +383,7 @@ export class AnyInbController {
         const startTime = Date.now();
         const result = await executor.execute(cleanCode);
         const elapsed = Date.now() - startTime;
+        this.connectionManager.notifyConnectionChanged();
 
         if (result.error) {
             this._outputHtml(execution, renderError(result.error, 'MongoDB'), false);
