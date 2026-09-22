@@ -54,6 +54,28 @@ const STYLES = `<style>
 .qnb-table td{padding:3px 10px;border-bottom:1px solid var(--qnb-border);color:var(--qnb-text);max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .qnb-table tr:hover td{background:var(--qnb-hover);}
 .qnb-td-idx,.qnb-th-idx{width:32px;color:var(--qnb-null);text-align:center;}
+.qnb-mongo-toolbar{display:flex;align-items:center;justify-content:space-between;padding:3px 2px 6px 2px;font-size:11px;border-bottom:1px solid var(--qnb-border);margin-bottom:6px;user-select:none;}
+.qnb-mongo-meta{display:flex;align-items:center;gap:6px;color:var(--qnb-text);opacity:0.85;}
+.qnb-mongo-badge{background:rgba(0,237,100,0.12);color:#00ED64;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:0.5px;}
+.qnb-mongo-time{opacity:0.6;}
+.qnb-seg-control{display:inline-flex;background:rgba(128,128,128,0.12);padding:2px;border-radius:4px;gap:2px;border:1px solid var(--qnb-border);}
+.qnb-seg-btn{display:inline-flex;align-items:center;padding:2px 8px;font-size:11px;border-radius:3px;cursor:pointer;user-select:none;color:var(--qnb-text);opacity:0.65;transition:all 0.15s ease;}
+.qnb-seg-btn:hover{opacity:1;background:rgba(255,255,255,0.06);}
+.qnb-radio-table:checked ~ .qnb-mongo-toolbar .qnb-seg-table{background:rgba(0,237,100,0.22);color:#00ED64;font-weight:600;opacity:1;box-shadow:0 1px 2px rgba(0,0,0,0.2);}
+.qnb-radio-json:checked ~ .qnb-mongo-toolbar .qnb-seg-json{background:rgba(0,237,100,0.22);color:#00ED64;font-weight:600;opacity:1;box-shadow:0 1px 2px rgba(0,0,0,0.2);}
+.qnb-radio-table:checked ~ .qnb-view-table{display:block;}
+.qnb-radio-table:checked ~ .qnb-view-json{display:none;}
+.qnb-radio-json:checked ~ .qnb-view-table{display:none;}
+.qnb-radio-json:checked ~ .qnb-view-json{display:block;}
+.qnb-th-inner{display:flex;align-items:baseline;gap:6px;}
+.qnb-th-name{font-weight:600;color:var(--qnb-key);}
+.qnb-th-type{font-size:10px;font-weight:normal;opacity:0.6;font-style:italic;color:var(--qnb-str);}
+.qnb-cell-missing{color:var(--qnb-null);opacity:0.4;font-weight:bold;}
+.qnb-cell-oid{color:var(--qnb-id);font-family:inherit;}
+.qnb-cell-str{color:var(--qnb-text);}
+.qnb-pill{display:inline-block;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:500;}
+.qnb-pill-array{background:rgba(229,192,123,0.15);color:#e5c07b;border:1px solid rgba(229,192,123,0.3);}
+.qnb-pill-obj{background:rgba(97,175,239,0.15);color:#61afef;border:1px solid rgba(97,175,239,0.3);}
 </style>`;
 
 // ─── Table (SQL & Tabular Data) ─────────────────────────────────
@@ -96,6 +118,161 @@ export function renderJson(data: any, elapsedMs: number, source: string): string
 <div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;--qnb-max-height:${config.maxHeight > 0 ? config.maxHeight + 'px' : 'none'};">
     <div class="qnb-mongosh">${mongoshFormatValue(data, 0)}</div>
 </div>`;
+}
+
+// ─── MongoDB Visual Table & Dual-View Switcher ──────────────────
+
+export function renderMongoTable(data: any, elapsedMs: number): string {
+    const config = getRendererConfig();
+    const rows: Record<string, any>[] = Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []);
+
+    // Also pipe to DataContext
+    DataContext.getInstance().setLastResult({ rawJson: data, source: 'MongoDB' });
+
+    if (!rows.length) {
+        return `${STYLES}
+<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;">
+    <div class="qnb-mongo-toolbar">
+        <div class="qnb-mongo-meta">
+            <span class="qnb-mongo-badge">MongoDB</span>
+            <strong>0 documents</strong>
+            <span class="qnb-mongo-time">• ${elapsedMs}ms</span>
+        </div>
+    </div>
+    <div class="qnb-mongosh" style="opacity:0.7;padding:2px 0;">[]</div>
+</div>`;
+    }
+
+    // Dynamic field detection across all documents
+    const fieldSet = new Set<string>();
+    for (const r of rows) {
+        if (r && typeof r === 'object') {
+            for (const k of Object.keys(r)) {
+                fieldSet.add(k);
+            }
+        }
+    }
+    const fields = Array.from(fieldSet);
+    const idIdx = fields.indexOf('_id');
+    if (idIdx > -1) {
+        fields.splice(idIdx, 1);
+        fields.unshift('_id');
+    }
+
+    // Column type determination
+    const colTypes: Record<string, string> = {};
+    for (const f of fields) {
+        const types = new Set<string>();
+        for (const r of rows) {
+            if (r && typeof r === 'object' && f in r) {
+                types.add(getBsonType(r[f]));
+            }
+        }
+        if (types.size === 0) colTypes[f] = 'null';
+        else if (types.size === 1) colTypes[f] = Array.from(types)[0];
+        else colTypes[f] = 'mixed';
+    }
+
+    const uid = 'mg_' + Math.random().toString(36).substring(2, 9);
+    const previewRows = rows.slice(0, 500);
+
+    const headerCells = `<th class="qnb-th-idx">#</th>` + fields.map(f => {
+        const typeBadge = colTypes[f] ? `<span class="qnb-th-type">${esc(colTypes[f])}</span>` : '';
+        return `<th><div class="qnb-th-inner"><span class="qnb-th-name">${esc(f)}</span>${typeBadge}</div></th>`;
+    }).join('');
+
+    const bodyRows = previewRows.map((r, i) => {
+        const cells = fields.map(f => {
+            const present = r && typeof r === 'object' && f in r;
+            return `<td>${formatMongoTableCell(r?.[f], present)}</td>`;
+        }).join('');
+        return `<tr><td class="qnb-td-idx">${i + 1}</td>${cells}</tr>`;
+    }).join('\n');
+
+    return `${STYLES}
+<div class="qnb-output" data-theme="${config.theme}" style="--qnb-font-size:${config.fontSize}px;--qnb-max-height:${config.maxHeight > 0 ? config.maxHeight + 'px' : 'none'};">
+    <input type="radio" name="mongo_view_${uid}" id="tab_table_${uid}" checked class="qnb-radio-table" style="display:none;">
+    <input type="radio" name="mongo_view_${uid}" id="tab_json_${uid}" class="qnb-radio-json" style="display:none;">
+
+    <div class="qnb-mongo-toolbar">
+        <div class="qnb-mongo-meta">
+            <span class="qnb-mongo-badge">MongoDB</span>
+            <strong>${rows.length} document${rows.length === 1 ? '' : 's'}</strong>
+            <span class="qnb-mongo-time">• ${elapsedMs}ms</span>
+        </div>
+        <div class="qnb-seg-control">
+            <label for="tab_table_${uid}" class="qnb-seg-btn qnb-seg-table" title="View as Table">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:4px;"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm1 2v4h6V1H2a1 1 0 0 0-1 1zm7-3v7h7V2a1 1 0 0 0-1-1H8zm7 8H8v6h6a1 1 0 0 0 1-1V9zm-8 6V9H1v5a1 1 0 0 0 1 1h6z"/></svg>Table
+            </label>
+            <label for="tab_json_${uid}" class="qnb-seg-btn qnb-seg-json" title="View as JSON (mongosh)">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:-1px;margin-right:4px;"><path d="M10.478 1.647a.5.5 0 1 0-.956-.294l-4 13a.5.5 0 0 0 .956.294l4-13zM4.854 4.146a.5.5 0 0 1 0 .708L1.707 8l3.147 3.146a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0zm6.292 0a.5.5 0 0 0 0 .708L14.293 8l-3.147 3.146a.5.5 0 0 0 .708.708l3.5-3.5a.5.5 0 0 0 0-.708l-3.5-3.5a.5.5 0 0 0-.708 0z"/></svg>JSON
+            </label>
+        </div>
+    </div>
+
+    <div class="qnb-view-table">
+        <div class="qnb-table-wrap">
+            <table class="qnb-table">
+                <thead><tr>${headerCells}</tr></thead>
+                <tbody>${bodyRows}</tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="qnb-view-json">
+        <div class="qnb-mongosh">${mongoshFormatValue(data, 0)}</div>
+    </div>
+</div>`;
+}
+
+function getBsonType(val: any): string {
+    if (val === undefined) return 'missing';
+    if (val === null) return 'null';
+    if (isObjectId(val) || (typeof val === 'string' && /^[a-f0-9]{24}$/i.test(val))) return 'ObjectId';
+    if (typeof val === 'string') return 'string';
+    if (typeof val === 'number') return Number.isInteger(val) ? 'int32' : 'double';
+    if (typeof val === 'bigint') return 'int64';
+    if (typeof val === 'boolean') return 'bool';
+    if (val instanceof Date) return 'date';
+    if (Array.isArray(val)) return 'array';
+    if (val && val._bsontype) return String(val._bsontype).toLowerCase();
+    if (typeof val === 'object') return 'object';
+    return typeof val;
+}
+
+function formatMongoTableCell(val: any, fieldPresent: boolean): string {
+    if (!fieldPresent) {
+        return '<span class="qnb-cell-missing" title="Field not present in document">—</span>';
+    }
+    if (val === null || val === undefined) {
+        return '<span class="mongosh-null">null</span>';
+    }
+    if (isObjectId(val) || (typeof val === 'string' && /^[a-f0-9]{24}$/i.test(val))) {
+        const hex = getObjectIdString(val);
+        return `<span class="qnb-cell-oid" title="ObjectId('${esc(hex)}')">${esc(hex)}</span>`;
+    }
+    if (typeof val === 'string') {
+        return `<span class="qnb-cell-str">${esc(val)}</span>`;
+    }
+    if (typeof val === 'number' || typeof val === 'bigint') {
+        return `<span class="mongosh-num">${val}</span>`;
+    }
+    if (typeof val === 'boolean') {
+        return `<span class="mongosh-bool">${val}</span>`;
+    }
+    if (val instanceof Date) {
+        return `<span class="qnb-cell-date">${esc(val.toISOString())}</span>`;
+    }
+    if (Array.isArray(val)) {
+        const preview = JSON.stringify(val);
+        return `<span class="qnb-pill qnb-pill-array" title="${esc(preview)}">Array(${val.length})</span>`;
+    }
+    if (typeof val === 'object') {
+        const preview = JSON.stringify(val);
+        const keys = Object.keys(val).length;
+        return `<span class="qnb-pill qnb-pill-obj" title="${esc(preview)}">{ ${keys} field${keys === 1 ? '' : 's'} }</span>`;
+    }
+    return esc(String(val));
 }
 
 // ─── Success & Error Monospace Text ─────────────────────────────

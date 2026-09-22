@@ -10,10 +10,11 @@ import { GraphqlExecutor } from './executors/graphqlExecutor';
 import { WebsocketExecutor } from './executors/websocketExecutor';
 import { RuntimeDetector } from './runtimeDetector';
 import {
-    renderTable, renderError, renderJson, renderSuccess,
+    renderTable, renderMongoTable, renderError, renderJson, renderSuccess,
     renderConnectionRequired, renderHttpResponse,
     renderRuntimeNotFound, renderMockEndpointCreated
 } from './renderers/htmlRenderer';
+import { parseMongoUseCommand } from './executors/mongoExecutor';
 
 import { DataContext } from './dataContext';
 import { MockServer } from './mockServer';
@@ -390,14 +391,13 @@ export class AnyInbController {
             }
 
             // If the user typed `use <database>`, switch db right away
-            const useMatch = cleanCode.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i);
-            if (useMatch) {
-                const dbName = useMatch[1];
-                const switchResult = await executor.execute(`use ${dbName}`);
+            const useDbName = parseMongoUseCommand(cleanCode);
+            if (useDbName !== null) {
+                const switchResult = await executor.execute(`use ${useDbName}`);
                 if (switchResult.error) {
                     this._outputHtml(execution, renderError(switchResult.error, 'MongoDB'), false);
                 } else {
-                    this._outputConsole(execution, `switched to db ${dbName}`, '', true);
+                    this._outputConsole(execution, `switched to db ${useDbName}`, '', true);
                 }
                 this.connectionManager.notifyConnectionChanged();
                 return;
@@ -414,11 +414,19 @@ export class AnyInbController {
             return;
         }
 
+        const isMongoTabular = (val: any) => {
+            if (Array.isArray(val)) return true;
+            if (val && typeof val === 'object' && ('_id' in val || (Object.keys(val).length > 2 && !('acknowledged' in val) && !('ok' in val)))) return true;
+            return false;
+        };
+
         if (result.results && result.results.length > 1) {
             const htmlParts: string[] = [];
             for (const item of result.results) {
                 if (typeof item === 'string') {
                     htmlParts.push(renderSuccess(item, elapsed, 'MongoDB'));
+                } else if (isMongoTabular(item)) {
+                    htmlParts.push(renderMongoTable(item, elapsed));
                 } else if (Array.isArray(item) || (item && typeof item === 'object')) {
                     htmlParts.push(renderJson(item, elapsed, 'MongoDB'));
                 } else {
@@ -431,6 +439,8 @@ export class AnyInbController {
 
         if (typeof result.data === 'string') {
             this._outputConsole(execution, result.data, '', true);
+        } else if (isMongoTabular(result.data)) {
+            this._outputHtml(execution, renderMongoTable(result.data, elapsed), true);
         } else if (Array.isArray(result.data) || (result.data && typeof result.data === 'object')) {
             this._outputHtml(execution, renderJson(result.data, elapsed, 'MongoDB'), true);
         } else {

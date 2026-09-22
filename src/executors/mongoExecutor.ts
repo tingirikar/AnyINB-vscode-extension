@@ -26,6 +26,26 @@ if (FindCursor && (FindCursor as any).prototype && !(FindCursor as any).prototyp
 }
 
 /**
+ * Parse `use <database>` commands, handling:
+ * - unquoted names with optional trailing semicolon: `use college;` -> `college`
+ * - quoted names preserving internal characters: `use "college;"` -> `college;`
+ */
+export function parseMongoUseCommand(code: string): string | null {
+    const clean = code.trim();
+    // 1. Quoted: use "dbname" or use 'dbname' or use `dbname`
+    const quoted = clean.match(/^use\s+(["'`])(.*?)\1\s*;?$/i);
+    if (quoted) {
+        return quoted[2];
+    }
+    // 2. Unquoted: use dbname or use dbname;
+    const unquoted = clean.match(/^use\s+([^\s;]+)\s*;?$/i);
+    if (unquoted) {
+        return unquoted[1];
+    }
+    return null;
+}
+
+/**
  * MongoDB query executor.
  * 
  * Users write JavaScript that uses a `db` object (the Db instance).
@@ -69,26 +89,48 @@ export class MongoExecutor {
             const cleanCode = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
 
             // Handle `use <database>` if that's the only statement
-            const useMatch = cleanCode.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i);
-            if (useMatch) {
-                const dbName = useMatch[1];
-                this.db = this.client.db(dbName);
+            const useDbName = parseMongoUseCommand(cleanCode);
+            if (useDbName !== null) {
+                let targetDbName = useDbName;
+                try {
+                    const adminDb = this.client.db().admin();
+                    const dbs = await adminDb.listDatabases();
+                    if (!dbs.databases.some((d: any) => d.name === targetDbName)) {
+                        const semi = dbs.databases.find((d: any) => d.name === `${targetDbName};`);
+                        if (semi) {
+                            targetDbName = semi.name;
+                        }
+                    }
+                } catch {}
+
+                this.db = this.client.db(targetDbName);
                 if (!this.config) {
                     this.config = { connectionString: 'mongodb://localhost:27017' };
                 }
-                this.config.database = dbName;
-                return { data: `switched to db ${dbName}` };
+                this.config.database = targetDbName;
+                return { data: `switched to db ${targetDbName}` };
             }
 
             const statements = this._splitStatements(cleanCode);
             const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
             const dbProxy = this._createDbProxy(this.db);
 
-            const __switchDb = (name: string) => {
-                this.db = this.client!.db(name);
+            const __switchDb = async (name: string) => {
+                let targetName = name;
+                try {
+                    const adminDb = this.client!.db().admin();
+                    const dbs = await adminDb.listDatabases();
+                    if (!dbs.databases.some((d: any) => d.name === targetName)) {
+                        const semi = dbs.databases.find((d: any) => d.name === `${targetName};`);
+                        if (semi) {
+                            targetName = semi.name;
+                        }
+                    }
+                } catch {}
+                this.db = this.client!.db(targetName);
                 if (!this.config) this.config = { connectionString: 'mongodb://localhost:27017' };
-                this.config.database = name;
-                return `switched to db ${name}`;
+                this.config.database = targetName;
+                return `switched to db ${targetName}`;
             };
 
             const __showDbs = async () => {
@@ -120,15 +162,13 @@ export class MongoExecutor {
             // Multi-statement execution: execute each statement and collect outputs
             if (statements.length > 1 && !/\breturn\b/.test(cleanCode)) {
                 try {
-                    const transformedStatements = statements.map((stmt) => {
+                    const transformedStatements = statements.map((stmt, i) => {
                         const trimmed = stmt.trim();
                         const lower = trimmed.toLowerCase().replace(/;+$/, '').trim();
 
-                        if (/^use\s+/i.test(trimmed)) {
-                            const m = trimmed.match(/^use\s+[`"']?([^;\s'"`]+)[`"']?\s*;?$/i);
-                            if (m) {
-                                return `__results.push(__switchDb("${m[1]}"));`;
-                            }
+                        const useDb = parseMongoUseCommand(trimmed);
+                        if (useDb !== null) {
+                            return `__results.push(await __switchDb(${JSON.stringify(useDb)}));`;
                         }
                         if (lower === 'show dbs' || lower === 'show databases') {
                             return `__results.push(await __showDbs());`;
@@ -155,9 +195,9 @@ export class MongoExecutor {
                             return trimmed + (trimmed.endsWith(';') ? '' : ';');
                         }
 
-                        // Normal expression or driver method call
+                        // Normal expression or driver method call - immediately snapshot any cursor
                         const cleanStmt = trimmed.replace(/;+$/, '');
-                        return `__results.push(await (${cleanStmt}));`;
+                        return `let __stmt_res_${i} = await (${cleanStmt}); if (__stmt_res_${i} && typeof __stmt_res_${i}.toArray === 'function') { __stmt_res_${i} = await __stmt_res_${i}.toArray(); } __results.push(__stmt_res_${i});`;
                     });
 
                     const transformedCode = `
@@ -373,7 +413,7 @@ export class MongoExecutor {
      */
     private _createDbProxy(db: Db): any {
         return new Proxy(db, {
-            get(target: any, prop: string | symbol) {
+            get: (target: any, prop: string | symbol) => {
                 if (typeof prop === 'string') {
                     if (prop === 'getName') {
                         return () => target.databaseName;
@@ -389,8 +429,8 @@ export class MongoExecutor {
                             return await target.listCollections(filter).toArray();
                         };
                     }
-                    if (prop === 'getCollection') {
-                        return (name: string) => target.collection(name);
+                    if (prop === 'getCollection' || prop === 'collection') {
+                        return (name: string) => this._createCollectionProxy(target.collection(name));
                     }
                     if (prop === 'version') {
                         return async () => {
@@ -398,15 +438,89 @@ export class MongoExecutor {
                             return info.version || 'unknown';
                         };
                     }
+                    if (prop === 'getSiblingDB') {
+                        return (name: string) => this._createDbProxy((this.client || target.client).db(name));
+                    }
+                    if (prop === 'dropDatabase') {
+                        return async (options?: any) => {
+                            const res = await target.dropDatabase(options);
+                            try {
+                                const admin = (this.client || target.client).db().admin();
+                                const dbs = await admin.listDatabases();
+                                const baseName = target.databaseName.replace(/;+$/, '');
+                                for (const d of dbs.databases) {
+                                    const dBase = d.name.replace(/;+$/, '');
+                                    if (dBase === baseName && d.name !== target.databaseName) {
+                                        await (this.client || target.client).db(d.name).dropDatabase(options);
+                                    }
+                                }
+                            } catch {}
+                            return res;
+                        };
+                    }
                     if (prop in target || typeof target[prop] === 'function') {
                         const val = target[prop];
                         return typeof val === 'function' ? val.bind(target) : val;
                     }
                     if (prop !== 'then' && !prop.startsWith('_') && !prop.startsWith('$')) {
-                        return target.collection(prop);
+                        return this._createCollectionProxy(target.collection(prop));
                     }
                 }
                 return target[prop];
+            }
+        });
+    }
+
+    /**
+     * Wrap Collection in a Proxy for mongosh compatibility:
+     * - find(query, projection, options)
+     * - findOne(query, projection, options)
+     * - count(filter, options)
+     */
+    private _createCollectionProxy(col: Collection): any {
+        return new Proxy(col, {
+            get: (target: any, prop: string | symbol) => {
+                if (prop === 'find') {
+                    return (filter?: any, projectionOrOptions?: any, maybeOptions?: any) => {
+                        if (maybeOptions !== undefined) {
+                            return target.find(filter, { ...maybeOptions, projection: projectionOrOptions });
+                        }
+                        if (projectionOrOptions && typeof projectionOrOptions === 'object') {
+                            if ('projection' in projectionOrOptions) {
+                                return target.find(filter, projectionOrOptions);
+                            }
+                            const driverOptionKeys = ['sort', 'skip', 'limit', 'batchSize', 'hint', 'explain', 'maxTimeMS', 'readPreference', 'session', 'timeoutMode'];
+                            const hasDriverKeys = Object.keys(projectionOrOptions).some(k => driverOptionKeys.includes(k));
+                            if (!hasDriverKeys) {
+                                return target.find(filter, { projection: projectionOrOptions });
+                            }
+                        }
+                        return target.find(filter, projectionOrOptions);
+                    };
+                }
+                if (prop === 'findOne') {
+                    return (filter?: any, projectionOrOptions?: any, maybeOptions?: any) => {
+                        if (maybeOptions !== undefined) {
+                            return target.findOne(filter, { ...maybeOptions, projection: projectionOrOptions });
+                        }
+                        if (projectionOrOptions && typeof projectionOrOptions === 'object') {
+                            if ('projection' in projectionOrOptions) {
+                                return target.findOne(filter, projectionOrOptions);
+                            }
+                            const driverOptionKeys = ['sort', 'skip', 'limit', 'batchSize', 'hint', 'explain', 'maxTimeMS', 'readPreference', 'session', 'timeoutMode'];
+                            const hasDriverKeys = Object.keys(projectionOrOptions).some(k => driverOptionKeys.includes(k));
+                            if (!hasDriverKeys) {
+                                return target.findOne(filter, { projection: projectionOrOptions });
+                            }
+                        }
+                        return target.findOne(filter, projectionOrOptions);
+                    };
+                }
+                if (prop === 'count') {
+                    return (filter?: any, options?: any) => target.countDocuments(filter || {}, options);
+                }
+                const val = target[prop];
+                return typeof val === 'function' ? val.bind(target) : val;
             }
         });
     }
