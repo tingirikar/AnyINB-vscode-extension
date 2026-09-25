@@ -51,7 +51,7 @@ const STYLES = `<style>
 .qnb-table{width:100%;border-collapse:collapse;font-size:12px;line-height:1.45;font-family:inherit;background:transparent;}
 .qnb-table thead{position:sticky;top:0;}
 .qnb-table th{color:var(--qnb-key);font-weight:600;text-align:left;padding:4px 10px;border-bottom:1px solid var(--qnb-border);background:transparent;}
-.qnb-table td{padding:3px 10px;border-bottom:1px solid var(--qnb-border);color:var(--qnb-text);max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.qnb-table td{padding:3px 10px;border-bottom:1px solid var(--qnb-border);color:var(--qnb-text);max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
 .qnb-table tr:hover td{background:var(--qnb-hover);}
 .qnb-td-idx,.qnb-th-idx{width:32px;color:var(--qnb-null);text-align:center;}
 .qnb-mongo-toolbar{display:flex;align-items:center;justify-content:space-between;padding:3px 2px 6px 2px;font-size:11px;border-bottom:1px solid var(--qnb-border);margin-bottom:6px;user-select:none;}
