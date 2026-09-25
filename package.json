@@ -2,7 +2,7 @@
   "name": "anyinb",
   "displayName": "AnyINB Notebook",
   "description": "Notebook for Python, JavaScript, SQL, HTTP, shell, and database workflows in VS Code.",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "publisher": "xenon-dev",
   "repository": {
     "type": "git",

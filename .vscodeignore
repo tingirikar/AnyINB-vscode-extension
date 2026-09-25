@@ -6,6 +6,4 @@ tsconfig.json
 **/*.map
 **/*.ts
 !out/**
-.eslintrc.json
-samples/**
-usage.md
+eslint.config.mjs
